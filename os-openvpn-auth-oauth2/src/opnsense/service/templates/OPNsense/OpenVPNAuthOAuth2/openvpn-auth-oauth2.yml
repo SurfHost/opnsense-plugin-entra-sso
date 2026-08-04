@@ -1,0 +1,68 @@
+{#
+ # openvpn-auth-oauth2 daemon configuration, rendered by configd.
+ # DRAFT: key names follow the upstream Configuration wiki (v1.28); verify on
+ # first lab deployment. Secrets end up in this file — it is installed 0600.
+ #}
+{% if helpers.exists('OPNsense.OpenVPNAuthOAuth2.general.enabled') and OPNsense.OpenVPNAuthOAuth2.general.enabled == '1' %}
+{% set cfg = OPNsense.OpenVPNAuthOAuth2 %}
+{% set instance_uuid = cfg.general.vpnInstance %}
+{% set vpnid = namespace(value='') %}
+{% if helpers.exists('OPNsense.OpenVPN.Instances.Instance') %}
+{%   for instance in helpers.toList('OPNsense.OpenVPN.Instances.Instance') %}
+{%     if instance['@uuid'] == instance_uuid %}
+{%       set vpnid.value = instance.vpnid %}
+{%     endif %}
+{%   endfor %}
+{% endif %}
+http:
+  listen: "{{ cfg.http.listenAddress }}:{{ cfg.http.listenPort }}"
+  baseurl: "{{ cfg.http.baseUrl }}"
+{% if cfg.http.secret != '' %}
+  secret: "{{ cfg.http.secret }}"
+{% endif %}
+{% if cfg.http.tlsEnabled == '1' %}
+  tls: true
+  # exported from the OPNsense trust store by the supervisor at service start
+  cert-file: /usr/local/etc/openvpn-auth-oauth2/http.crt
+  key-file: /usr/local/etc/openvpn-auth-oauth2/http.key
+{% else %}
+  tls: false
+{% endif %}
+
+oauth2:
+  issuer: "https://login.microsoftonline.com/{{ cfg.entra.tenantId }}/v2.0"
+  provider: "{{ cfg.entra.provider }}"
+  client:
+    id: "{{ cfg.entra.clientId }}"
+    secret: "{{ cfg.entra.clientSecret }}"
+  scopes:
+{% for scope in cfg.entra.scopes.split(' ') if scope != '' %}
+    - "{{ scope }}"
+{% endfor %}
+  validate:
+{% if cfg.validation.allowedGroups != '' %}
+    groups:
+{% for group in cfg.validation.allowedGroups.split(',') if group != '' %}
+      - "{{ group }}"
+{% endfor %}
+{% endif %}
+{% if cfg.validation.validateCommonName == '1' %}
+    common-name: "preferred_username"
+{% endif %}
+    ipaddr: {{ 'true' if cfg.validation.validateIpAddr == '1' else 'false' }}
+  refresh:
+    enabled: true
+
+openvpn:
+  addr: "unix:///var/run/openvpn-auth-oauth2/server{{ vpnid.value }}.sock"
+  auth-token-user: true
+  auth-pending-timeout: {{ cfg.validation.authTimeout }}s
+{% if cfg.daemon.passthroughEnabled == '1' %}
+  pass-through:
+    enabled: true
+    address: "unix:///var/etc/openvpn/server{{ vpnid.value }}.sock"
+{% endif %}
+
+log:
+  level: {{ cfg.daemon.logLevel }}
+{% endif %}

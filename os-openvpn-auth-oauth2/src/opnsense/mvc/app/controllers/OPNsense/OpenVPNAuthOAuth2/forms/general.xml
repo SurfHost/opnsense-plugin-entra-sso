@@ -1,0 +1,123 @@
+<form>
+    <field>
+        <id>openvpnauthoauth2.general.enabled</id>
+        <label>Enable</label>
+        <type>checkbox</type>
+        <help>Enable the openvpn-auth-oauth2 SSO service.</help>
+    </field>
+    <field>
+        <id>openvpnauthoauth2.general.vpnInstance</id>
+        <label>OpenVPN instance</label>
+        <type>dropdown</type>
+        <help>The OpenVPN server instance to protect with SSO. The instance must have 'management-client-auth' in its various flags and no authentication backend configured.</help>
+    </field>
+    <separator>Identity provider (Microsoft Entra ID)</separator>
+    <field>
+        <id>openvpnauthoauth2.entra.provider</id>
+        <label>Provider</label>
+        <type>dropdown</type>
+        <help>OIDC provider profile. Use 'Microsoft Entra ID' unless connecting a different IdP.</help>
+    </field>
+    <field>
+        <id>openvpnauthoauth2.entra.tenantId</id>
+        <label>Tenant ID</label>
+        <type>text</type>
+        <help>Entra ID directory (tenant) GUID; used to derive the issuer URL.</help>
+    </field>
+    <field>
+        <id>openvpnauthoauth2.entra.clientId</id>
+        <label>Client ID</label>
+        <type>text</type>
+        <help>Application (client) ID of the Entra app registration.</help>
+    </field>
+    <field>
+        <id>openvpnauthoauth2.entra.clientSecret</id>
+        <label>Client secret</label>
+        <type>password</type>
+        <help>Client secret of the app registration. Note the expiry date: Entra secrets are valid for at most 24 months.</help>
+    </field>
+    <field>
+        <id>openvpnauthoauth2.entra.scopes</id>
+        <label>Scopes</label>
+        <type>text</type>
+        <advanced>true</advanced>
+        <help>Space-separated OIDC scopes requested from the provider.</help>
+    </field>
+    <separator>Authorization</separator>
+    <field>
+        <id>openvpnauthoauth2.validation.allowedGroups</id>
+        <label>Allowed groups</label>
+        <type>select_multiple</type>
+        <style>tokenize</style>
+        <allownew>true</allownew>
+        <help>Entra ID group object IDs allowed to connect. Empty allows every authenticated user.</help>
+    </field>
+    <field>
+        <id>openvpnauthoauth2.validation.validateCommonName</id>
+        <label>Match certificate CN</label>
+        <type>checkbox</type>
+        <advanced>true</advanced>
+        <help>Require the client certificate common name to match the authenticated user.</help>
+    </field>
+    <field>
+        <id>openvpnauthoauth2.validation.validateIpAddr</id>
+        <label>Match IP address</label>
+        <type>checkbox</type>
+        <advanced>true</advanced>
+        <help>Require the browser session and the VPN client to come from the same IP address.</help>
+    </field>
+    <field>
+        <id>openvpnauthoauth2.validation.authTimeout</id>
+        <label>Pending-auth timeout (s)</label>
+        <type>text</type>
+        <advanced>true</advanced>
+        <help>How long a client may take to finish the browser login.</help>
+    </field>
+    <separator>Callback listener</separator>
+    <field>
+        <id>openvpnauthoauth2.http.baseUrl</id>
+        <label>Public base URL</label>
+        <type>text</type>
+        <help>URL the user's browser reaches the firewall on, e.g. https://vpn.example.nl:9000 — must match DNS and the certificate, and be registered as redirect URI base in Entra.</help>
+    </field>
+    <field>
+        <id>openvpnauthoauth2.http.listenAddress</id>
+        <label>Listen address</label>
+        <type>text</type>
+        <advanced>true</advanced>
+        <help>Local address the callback listener binds to.</help>
+    </field>
+    <field>
+        <id>openvpnauthoauth2.http.listenPort</id>
+        <label>Listen port</label>
+        <type>text</type>
+        <help>TCP port of the callback listener; remember the matching firewall rule.</help>
+    </field>
+    <field>
+        <id>openvpnauthoauth2.http.tlsEnabled</id>
+        <label>Enable TLS</label>
+        <type>checkbox</type>
+        <help>Serve the callback listener over HTTPS (required by several VPN clients).</help>
+    </field>
+    <field>
+        <id>openvpnauthoauth2.http.certificate</id>
+        <label>Certificate</label>
+        <type>dropdown</type>
+        <help>Server certificate from the OPNsense trust store for the HTTPS listener.</help>
+    </field>
+    <separator>Advanced</separator>
+    <field>
+        <id>openvpnauthoauth2.daemon.passthroughEnabled</id>
+        <label>GUI status pass-through</label>
+        <type>checkbox</type>
+        <advanced>true</advanced>
+        <help>Keep VPN → OpenVPN → Connection Status working by proxying the management socket. Disable ("exclusive mode") only if the socket swap misbehaves.</help>
+    </field>
+    <field>
+        <id>openvpnauthoauth2.daemon.logLevel</id>
+        <label>Log level</label>
+        <type>dropdown</type>
+        <advanced>true</advanced>
+        <help>Verbosity of the daemon log.</help>
+    </field>
+</form>

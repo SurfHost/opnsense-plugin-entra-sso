@@ -1,0 +1,117 @@
+<model>
+    <mount>//OPNsense/OpenVPNAuthOAuth2</mount>
+    <version>0.0.1</version>
+    <description>OpenVPN SSO via OpenID Connect (openvpn-auth-oauth2)</description>
+    <items>
+        <general>
+            <enabled type="BooleanField">
+                <Default>0</Default>
+                <Required>Y</Required>
+            </enabled>
+            <vpnInstance type="ModelRelationField">
+                <Model>
+                    <instances>
+                        <source>OPNsense.OpenVPN.OpenVPN</source>
+                        <items>Instances.Instance</items>
+                        <display>description</display>
+                        <filters>
+                            <role>/server/</role>
+                        </filters>
+                    </instances>
+                </Model>
+                <ValidationMessage>Please select a valid OpenVPN server instance.</ValidationMessage>
+                <Required>N</Required>
+            </vpnInstance>
+        </general>
+        <entra>
+            <tenantId type="TextField">
+                <Mask>/^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$/u</Mask>
+                <ValidationMessage>Tenant ID must be a GUID.</ValidationMessage>
+                <Required>N</Required>
+            </tenantId>
+            <clientId type="TextField">
+                <Mask>/^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$/u</Mask>
+                <ValidationMessage>Client ID must be a GUID.</ValidationMessage>
+                <Required>N</Required>
+            </clientId>
+            <clientSecret type="TextField">
+                <Required>N</Required>
+            </clientSecret>
+            <provider type="OptionField">
+                <Default>generic</Default>
+                <OptionValues>
+                    <generic>Generic OIDC</generic>
+                    <azuread>Microsoft Entra ID</azuread>
+                </OptionValues>
+                <Required>Y</Required>
+            </provider>
+            <scopes type="TextField">
+                <Default>openid profile offline_access</Default>
+                <Required>N</Required>
+            </scopes>
+        </entra>
+        <validation>
+            <allowedGroups type="CSVListField">
+                <Required>N</Required>
+            </allowedGroups>
+            <validateCommonName type="BooleanField">
+                <Default>0</Default>
+                <Required>Y</Required>
+            </validateCommonName>
+            <validateIpAddr type="BooleanField">
+                <Default>0</Default>
+                <Required>Y</Required>
+            </validateIpAddr>
+            <authTimeout type="IntegerField">
+                <Default>180</Default>
+                <MinimumValue>30</MinimumValue>
+                <MaximumValue>3600</MaximumValue>
+                <ValidationMessage>Pending-auth timeout must be between 30 and 3600 seconds.</ValidationMessage>
+                <Required>Y</Required>
+            </authTimeout>
+        </validation>
+        <http>
+            <listenAddress type="TextField">
+                <Default>0.0.0.0</Default>
+                <Required>Y</Required>
+            </listenAddress>
+            <listenPort type="PortField">
+                <Default>9000</Default>
+                <Required>Y</Required>
+            </listenPort>
+            <baseUrl type="TextField">
+                <Mask>/^https?:\/\/.+$/u</Mask>
+                <ValidationMessage>Base URL must be a http(s) URL reachable by the user's browser.</ValidationMessage>
+                <Required>N</Required>
+            </baseUrl>
+            <tlsEnabled type="BooleanField">
+                <Default>1</Default>
+                <Required>Y</Required>
+            </tlsEnabled>
+            <certificate type="CertificateField">
+                <Required>N</Required>
+            </certificate>
+            <secret type="TextField">
+                <Mask>/^[0-9a-zA-Z]{16}([0-9a-zA-Z]{8})?([0-9a-zA-Z]{8})?$/u</Mask>
+                <ValidationMessage>HTTP secret must be 16, 24 or 32 alphanumeric characters.</ValidationMessage>
+                <Required>N</Required>
+            </secret>
+        </http>
+        <daemon>
+            <passthroughEnabled type="BooleanField">
+                <Default>1</Default>
+                <Required>Y</Required>
+            </passthroughEnabled>
+            <logLevel type="OptionField">
+                <Default>info</Default>
+                <OptionValues>
+                    <debug>debug</debug>
+                    <info>info</info>
+                    <warn>warn</warn>
+                    <error>error</error>
+                </OptionValues>
+                <Required>Y</Required>
+            </logLevel>
+        </daemon>
+    </items>
+</model>

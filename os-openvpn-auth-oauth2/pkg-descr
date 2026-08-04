@@ -1,0 +1,10 @@
+Browser-based single sign-on (SSO) for OpenVPN instances using
+openvpn-auth-oauth2: users authenticate against an OpenID Connect
+provider such as Microsoft Entra ID, including Conditional Access
+and MFA, via OpenVPN's deferred "webauth" authentication.
+
+The plugin configures and supervises the openvpn-auth-oauth2 daemon
+and integrates it with the OPNsense OpenVPN Instances management
+socket without patching core.
+
+WWW: https://github.com/SurfHost/opnsense-plugin-entra-sso

@@ -1,0 +1,7 @@
+<menu>
+    <VPN>
+        <OpenVPN>
+            <OpenVPNAuthOAuth2 VisibleName="SSO (OAuth2 / Entra ID)" order="500" url="/ui/openvpnauthoauth2/index"/>
+        </OpenVPN>
+    </VPN>
+</menu>

@@ -1,0 +1,29 @@
+#!/bin/sh
+
+# Copyright (c) 2026 SurfHost.nl
+# SPDX-License-Identifier: MIT
+
+# PROVIDE: openvpnauthoauth2
+# REQUIRE: SERVERS openvpn
+# KEYWORD: shutdown
+
+# Supervises openvpn-auth-oauth2 through supervisor.py, which owns the
+# management-socket swap and (re)spawns the Go daemon. The rc script shipped
+# with the security/openvpn-auth-oauth2 port stays disabled; this one is the
+# single entry point used by configd.
+
+. /etc/rc.subr
+
+name=openvpnauthoauth2
+rcvar=openvpnauthoauth2_enable
+
+load_rc_config ${name}
+
+: ${openvpnauthoauth2_enable:="NO"}
+
+pidfile="/var/run/${name}.pid"
+procname="/usr/local/bin/python3"
+command="/usr/sbin/daemon"
+command_args="-f -P ${pidfile} -t ${name} -r /usr/local/opnsense/scripts/OPNsense/OpenVPNAuthOAuth2/supervisor.py"
+
+run_rc_command "$1"

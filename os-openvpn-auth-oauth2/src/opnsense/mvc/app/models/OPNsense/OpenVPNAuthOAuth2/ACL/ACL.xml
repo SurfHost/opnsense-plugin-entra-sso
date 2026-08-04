@@ -1,0 +1,9 @@
+<acl>
+    <page-vpn-openvpnauthoauth2>
+        <name>VPN: OpenVPN: SSO (OAuth2)</name>
+        <patterns>
+            <pattern>ui/openvpnauthoauth2/*</pattern>
+            <pattern>api/openvpnauthoauth2/*</pattern>
+        </patterns>
+    </page-vpn-openvpnauthoauth2>
+</acl>
