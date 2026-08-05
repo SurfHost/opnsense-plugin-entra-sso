@@ -42,6 +42,12 @@ silent while the auth token is valid.
 Two ports must be reachable from the internet: the OpenVPN port itself
 (UDP 1194 by default) and the browser callback port (TCP 9443 by default).
 
+> **Network sanity.** Give the firewall one subnet per interface, and test with a
+> client that is *outside* it. Two interfaces sharing a subnet cause replies to
+> leave by the wrong path, and a client on the same subnet as the VPN interface
+> hits pf's `reply-to` behaviour. Both produce a VPN that hangs at TLS
+> negotiation while every service on the firewall looks perfectly healthy.
+
 > **Note on clients:** NetworkManager on Linux does not support browser
 > authentication and cannot be used. OpenVPN Connect v3 works only partially.
 > Use one of the clients listed above.
@@ -122,6 +128,22 @@ groups, which then denies them.
 Under **Security > Conditional Access**, create a policy scoped to this
 application to require MFA, a compliant device, or specific named locations.
 This is the main reason to use SSO rather than passwords, so it is worth doing.
+
+### Reusing an existing app registration
+
+Moving to a different firewall, or rebuilding one? The app registration itself
+needs no changes, but three things must still line up:
+
+1. **The redirect URI must match the new firewall's public base URL exactly**,
+   including scheme, hostname and port. If the hostname or port changes, add
+   the new URI under **Authentication > Redirect URIs**. An app registration can
+   hold several, so you can keep the old one during a migration.
+2. **DNS for that hostname must point at the new firewall.**
+3. **The listener certificate must exist on the new firewall**, since it lives
+   in that box's trust store rather than in Entra. Re-issue it with
+   **os-acme-client**, or export and import it.
+
+The tenant ID, client ID and client secret carry over unchanged.
 
 ### What to write down
 
