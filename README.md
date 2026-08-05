@@ -9,10 +9,11 @@ OPNsense's new OpenVPN **Instances**.
 > panel) are finished and the daemon config keys are verified against the
 > upstream wiki (v1.28). What remains is the lab test loop below.
 >
-> ⚠️ **Known blocker:** OPNsense core does not let you set the required
+> ⚠️ **Note:** OPNsense core does not let you set the required
 > `management-client-auth` directive on an OpenVPN instance (its *Various
-> Flags* field is a closed list). Lab testing needs a `config.xml` edit, and a
-> one-line core PR is the prerequisite for supported use — see
+> Flags* field is a closed list), and drops it whenever that instance is saved.
+> The plugin repairs this itself on save/apply and restarts the affected
+> instance; a one-line core PR remains the proper fix. See
 > [the investigation](docs/INVESTIGATION.md#blocker-management-client-auth-is-not-settable-in-the-stock-ui).
 
 ## What's here
@@ -56,20 +57,19 @@ ssh root@fw 'rm -rf /tmp/opnsense_mvc_cache* ; service configd restart ; service
 ```
 
 Then create/select an OpenVPN instance and leave its *Authentication* empty.
-The `management-client-auth` directive cannot be added in the GUI, so for the
-lab loop patch it in directly (the config generator emits `various_flags`
-entries verbatim, so this works; re-saving that instance in the GUI drops it
-again):
+Configure **VPN → OpenVPN → SSO** with your tenant/client credentials and save:
+the plugin adds the `management-client-auth` directive to that instance (which
+the GUI cannot set) and restarts it, so the status panel's
+*management-client-auth* row should read **present**. Confirm the directive
+reached the generated config:
 
 ```sh
-# on the OPNsense test box, for the instance's <various_flags> node
-sed -i '' 's|<various_flags></various_flags>|<various_flags>management-client-auth</various_flags>|' /conf/config.xml
-configctl openvpn restart          # regenerate the instance config
-grep management /var/etc/openvpn/server*.conf   # expect the directive
+grep management-client-auth /var/etc/openvpn/instance-*.conf
 ```
 
-Finally configure **VPN → OpenVPN → SSO** with your tenant/client credentials;
-the status panel's *management-client-auth* row must read **present**.
+Re-saving that instance under **VPN → OpenVPN → Instances** silently removes
+the directive again; the status row then reads *missing* until the next save
+here. That round trip is worth exercising once during the lab test.
 
 Smoke tests:
 

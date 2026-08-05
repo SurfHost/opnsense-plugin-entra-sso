@@ -109,7 +109,7 @@
             </tbody>
         </table>
         <div id="client_auth_warning" class="alert alert-warning" style="display:none; max-width: 60em;">
-            {{ lang._("The selected OpenVPN instance does not carry the 'management-client-auth' directive, so OpenVPN never asks this service to authorize client connects and SSO stays silent. The directive is not offered by the instance's Various Flags field in OPNsense core; see the plugin documentation for the current workaround.") }}
+            {{ lang._("The selected OpenVPN instance does not carry the 'management-client-auth' directive, so OpenVPN never asks this service to authorize client connects and SSO stays silent. OPNsense does not offer the directive in the instance's Various Flags field and drops it whenever that instance is saved. Press Save below to add it back and restart the instance (this drops its active tunnels), or disable 'Repair OpenVPN instance flag' under Advanced to manage the directive yourself.") }}
         </div>
     </div>
 </div>

@@ -95,6 +95,10 @@
             </secret>
         </http>
         <daemon>
+            <autoFixInstanceFlag type="BooleanField">
+                <Default>1</Default>
+                <Required>Y</Required>
+            </autoFixInstanceFlag>
             <passthroughEnabled type="BooleanField">
                 <Default>1</Default>
                 <Required>Y</Required>

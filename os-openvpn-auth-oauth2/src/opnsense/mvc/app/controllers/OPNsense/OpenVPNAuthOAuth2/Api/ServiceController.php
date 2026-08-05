@@ -19,7 +19,7 @@ class ServiceController extends ApiMutableServiceControllerBase
 
     /**
      * Health details for the UI status panel (supervisor, daemon, socket
-     * swap, callback listener), collected by status.py via configd.
+     * swap, callback listener, OpenVPN prerequisite), collected by status.py.
      * @return array
      */
     public function detailsAction()
@@ -32,5 +32,61 @@ class ServiceController extends ApiMutableServiceControllerBase
         }
         $data['result'] = 'ok';
         return $data;
+    }
+
+    /**
+     * Repair the selected OpenVPN instance before applying our own config, so
+     * the daemon comes up against an instance that actually defers client
+     * connects. Runs first: restarting the instance re-creates the management
+     * socket the supervisor swaps, so doing it afterwards would force an
+     * immediate re-swap cycle.
+     * @return array
+     */
+    public function reconfigureAction()
+    {
+        if ($this->request->isPost()) {
+            $this->repairInstanceFlag();
+        }
+
+        return parent::reconfigureAction();
+    }
+
+    /**
+     * Same repair on a manual service start.
+     * @return array
+     */
+    public function startAction()
+    {
+        if ($this->request->isPost()) {
+            $this->repairInstanceFlag();
+        }
+
+        return parent::startAction();
+    }
+
+    /**
+     * Add 'management-client-auth' to the selected instance when missing and
+     * restart that instance so the regenerated config carries the directive.
+     * Restarting drops the instance's active tunnels, so it only happens when
+     * the flag was genuinely absent (i.e. SSO could not have worked anyway).
+     */
+    private function repairInstanceFlag()
+    {
+        $model = $this->getModel();
+        if ($model->ensureClientAuthFlag() !== true) {
+            return;
+        }
+
+        $uuid = (string)$model->general->vpnInstance;
+        if (!preg_match('/^[0-9a-fA-F-]{36}$/', $uuid)) {
+            return;
+        }
+
+        $backend = new Backend();
+        $backend->configdpRun('openvpn restart', [$uuid]);
+        syslog(LOG_NOTICE, sprintf(
+            "openvpn-auth-oauth2: added 'management-client-auth' to OpenVPN instance %s and restarted it",
+            $uuid
+        ));
     }
 }

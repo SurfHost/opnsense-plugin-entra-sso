@@ -181,12 +181,26 @@ present in `config.xml`.
 | Path | Notes |
 |---|---|
 | **Upstream core PR adding `management-client-auth` to the `OptionValues` list** | The real fix; one-line model change, no generator work. Prerequisite for a supportable release. |
-| Hand-edit `config.xml` (add the flag to the instance's `various_flags`, reload) | Works for lab testing because the generator emits it verbatim. Fragile: core's `OptionField` validation drops the value the next time that instance is saved in the GUI. |
+| **Plugin self-heal (implemented)** | On save/apply and on service start the plugin writes the flag straight into the instance's `various_flags` node in `config.xml`, bypassing the closed OptionField, then runs `configctl openvpn restart <uuid>` so the regenerated config carries the directive. Controlled by *Repair OpenVPN instance flag* (default on). |
+| Hand-edit `config.xml` | The manual version of the above; still useful for testing without the plugin enabled. |
 | Exclusive mode / other injection hacks | Do not help; the directive must reach the generated instance config. |
 
-Consequences for this plugin: the model deliberately does **not** validate the
-flag (a `performValidation` message is a hard error and would make the plugin
-un-enableable); the status panel reports it as a warning instead.
+Consequences for this plugin:
+
+- the model deliberately does **not** validate the flag (a `performValidation`
+  message is a hard error and would make the plugin un-enableable); the status
+  panel reports it as a warning instead;
+- `OpenVPNAuthOAuth2::ensureClientAuthFlag()` performs the repair, and
+  `ServiceController` restarts the affected instance when (and only when) it
+  actually added the directive — a restart drops that instance's tunnels;
+- the repair writes into core's configuration section, which is why it is a
+  bridge and not the destination. Two caveats: the value stays invisible to
+  the OpenVPN instance form (which will drop it again on the next save there,
+  triggering another repair on the next apply), and a core code path doing
+  *full-model* validation on the OpenVPN model would reject the value. Core's
+  own migrations do not, because `BaseModel::performValidation()` only
+  validates fields that changed and migrations serialize without full-model
+  validation, so the flag survives firmware updates.
 
 ## Entra ID app registration (runbook)
 

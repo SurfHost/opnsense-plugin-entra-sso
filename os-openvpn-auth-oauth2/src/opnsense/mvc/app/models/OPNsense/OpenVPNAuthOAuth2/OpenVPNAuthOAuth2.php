@@ -9,18 +9,80 @@ namespace OPNsense\OpenVPNAuthOAuth2;
 
 use OPNsense\Base\BaseModel;
 use OPNsense\Base\Messages\Message;
+use OPNsense\Core\Config;
 
 class OpenVPNAuthOAuth2 extends BaseModel
 {
     /**
-     * Note on 'management-client-auth': the selected OpenVPN instance must
-     * announce client connects on the management interface, which requires
-     * that valueless directive in its "various flags". Core's various_flags
-     * is a closed OptionField that does not offer it (see
-     * docs/INVESTIGATION.md), so this is deliberately NOT validated here:
-     * performValidation messages are hard errors that block the save, and
-     * that would make the plugin impossible to enable. The status panel
-     * reports the missing directive as a warning instead.
+     * The directive OpenVPN needs before it defers client connects to a
+     * management client. Core's various_flags is a closed OptionField that
+     * does not offer it, so the GUI cannot set it and silently drops it when
+     * the instance is saved.
+     */
+    public const REQUIRED_FLAG = 'management-client-auth';
+
+    /**
+     * Add REQUIRED_FLAG to the selected instance's various_flags directly in
+     * config.xml, bypassing the closed OptionField the GUI enforces. The
+     * OpenVPN config generator emits various_flags entries verbatim as bare
+     * directives, so the value takes effect on the next instance restart.
+     *
+     * Deliberately writing into core's configuration section: there is no
+     * supported injection point until core accepts the directive (see
+     * docs/INVESTIGATION.md). Guarded by a model toggle.
+     *
+     * @return bool|null true when the flag was added (caller must restart the
+     *                   instance), false when already present, null when not
+     *                   applicable
+     */
+    public function ensureClientAuthFlag()
+    {
+        if (
+            (string)$this->general->enabled !== '1' ||
+            (string)$this->daemon->autoFixInstanceFlag !== '1'
+        ) {
+            return null;
+        }
+        $uuid = (string)$this->general->vpnInstance;
+        if ($uuid === '') {
+            return null;
+        }
+
+        $config = Config::getInstance()->object();
+        if (!isset($config->OPNsense->OpenVPN->Instances->Instance)) {
+            return null;
+        }
+
+        foreach ($config->OPNsense->OpenVPN->Instances->Instance as $instance) {
+            if ((string)$instance['uuid'] !== $uuid) {
+                continue;
+            }
+            $flags = array_values(array_filter(
+                array_map('trim', explode(',', (string)$instance->various_flags)),
+                'strlen'
+            ));
+            if (in_array(self::REQUIRED_FLAG, $flags, true)) {
+                return false;
+            }
+            $flags[] = self::REQUIRED_FLAG;
+            if (isset($instance->various_flags)) {
+                $instance->various_flags = implode(',', $flags);
+            } else {
+                $instance->addChild('various_flags', implode(',', $flags));
+            }
+            Config::getInstance()->save();
+            return true;
+        }
+
+        return null;
+    }
+
+    /**
+     * Note on 'management-client-auth': see ensureClientAuthFlag(). It is
+     * deliberately NOT validated here, because messages appended in
+     * performValidation are hard errors that block the save, which would make
+     * the plugin impossible to enable whenever the flag is absent. The status
+     * panel reports a missing directive as a warning instead.
      */
     public function performValidation($validateFullModel = false)
     {
