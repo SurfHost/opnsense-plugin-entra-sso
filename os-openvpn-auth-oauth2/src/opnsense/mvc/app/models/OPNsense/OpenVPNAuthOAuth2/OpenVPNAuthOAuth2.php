@@ -13,10 +13,14 @@ use OPNsense\Base\Messages\Message;
 class OpenVPNAuthOAuth2 extends BaseModel
 {
     /**
-     * The selected OpenVPN instance must announce client connects on the
-     * management interface, which requires the valueless directive
-     * 'management-client-auth' in its "various flags". Core offers no hook to
-     * inject it, so we can only detect and warn.
+     * Note on 'management-client-auth': the selected OpenVPN instance must
+     * announce client connects on the management interface, which requires
+     * that valueless directive in its "various flags". Core's various_flags
+     * is a closed OptionField that does not offer it (see
+     * docs/INVESTIGATION.md), so this is deliberately NOT validated here:
+     * performValidation messages are hard errors that block the save, and
+     * that would make the plugin impossible to enable. The status panel
+     * reports the missing directive as a warning instead.
      */
     public function performValidation($validateFullModel = false)
     {
@@ -29,23 +33,6 @@ class OpenVPNAuthOAuth2 extends BaseModel
             $messages->appendMessage(
                 new Message(gettext('An OpenVPN server instance must be selected when the service is enabled.'), 'general.vpnInstance')
             );
-        }
-
-        if ($enabled && $instanceRef !== '') {
-            $openvpn = new \OPNsense\OpenVPN\OpenVPN();
-            $instance = $openvpn->getNodeByReference('Instances.Instance.' . $instanceRef);
-            if ($instance !== null) {
-                $flags = array_map('trim', explode(',', (string)$instance->various_flags));
-                if (!in_array('management-client-auth', $flags, true)) {
-                    $messages->appendMessage(
-                        new Message(
-                            gettext("The selected instance is missing 'management-client-auth' in its various flags; " .
-                                    'SSO cannot intercept client connects without it.'),
-                            'general.vpnInstance'
-                        )
-                    );
-                }
-            }
         }
 
         if ($enabled && (string)$this->entra->tenantId === '' && (string)$this->entra->issuer === '') {

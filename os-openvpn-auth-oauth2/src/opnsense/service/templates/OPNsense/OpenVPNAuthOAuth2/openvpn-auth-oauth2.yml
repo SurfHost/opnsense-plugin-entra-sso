@@ -4,7 +4,9 @@
  # Careful: configd hands EMPTY config.xml elements to jinja as None, not '',
  # so every optional leaf goes through |default('', true) (the boolean makes
  # it also replace None). Free-form values are escaped for double-quoted YAML.
- # Secrets end up in this file, so it is installed 0600.
+ # Secrets end up in this file. configd chmods rendered files to the parent
+ # directory's mode minus the execute bits, so supervisor.py forces the
+ # directory to 0700 and this file to 0600 before every daemon start.
  #}
 {% macro q(value) %}"{{ value|replace('\\', '\\\\')|replace('"', '\\"') }}"{% endmacro %}
 {% if helpers.exists('OPNsense.OpenVPNAuthOAuth2.general.enabled') and OPNsense.OpenVPNAuthOAuth2.general.enabled == '1' %}

@@ -145,11 +145,14 @@ Because core hardcodes the socket path, the plugin's supervisor performs a
 toggle lets the daemon connect straight to `S`. Everything works except GUI
 status/kill for that one instance (documented limitation).
 
-### OpenVPN instance prerequisites (all achievable in the stock UI)
+### OpenVPN instance prerequisites
 
-- Add `management-client-auth` to the instance's **various flags** (valueless →
-  allowed by the field). Required so OpenVPN asks the management client to decide
-  `>CLIENT:CONNECT`. The plugin warns if it's missing.
+> ⚠️ **Correction (verified Aug 2026):** the first of these is *not* achievable
+> in the stock UI. See [the blocker below](#blocker-management-client-auth-is-not-settable-in-the-stock-ui).
+
+- Add `management-client-auth` to the instance's **various flags**. Required so
+  OpenVPN asks the management client to decide `>CLIENT:CONNECT`. The plugin
+  reports it as a warning in the status panel when missing.
 - Leave **Authentication** (authmode) empty — otherwise `ovpn_event.py --defer`
   *and* the SSO daemon must both approve every login (usable as a deliberate
   2-source auth, but not the default).
@@ -157,6 +160,33 @@ status/kill for that one instance (documented limitation).
   set renegotiation (`reneg-sec`) to `0`, per upstream SSO guidance, so users
   aren't re-prompted mid-session.
 - Server runs OpenVPN ≥ 2.6.2 — satisfied by OPNsense 26.7.
+
+### Blocker: `management-client-auth` is not settable in the stock UI
+
+The original assessment assumed `various_flags` accepted any valueless
+directive. It does not. Verified against
+[`OpenVPN.xml`](https://github.com/opnsense/core/blob/master/src/opnsense/mvc/app/models/OPNsense/OpenVPN/OpenVPN.xml)
+in opnsense/core: `Instances.Instance.various_flags` is a **closed
+`OptionField`** whose only values are `block-ipv6`, `client-to-client`,
+`duplicate-cn`, `float`, `passtos`, `persist-remote-ip`, `remote-random`,
+`route-noexec`, `route-nopull`, `explicit-exit-notify` and `fast-io`.
+`management-client-auth` is not among them, and the Instance model has no
+free-form directive field. Without the directive OpenVPN never defers client
+connects, so the daemon sits idle and no SSO happens.
+
+The generator itself is not the problem: `generateInstanceConfig()` emits each
+`various_flags` entry as a bare directive line, so the value *works* once
+present in `config.xml`.
+
+| Path | Notes |
+|---|---|
+| **Upstream core PR adding `management-client-auth` to the `OptionValues` list** | The real fix; one-line model change, no generator work. Prerequisite for a supportable release. |
+| Hand-edit `config.xml` (add the flag to the instance's `various_flags`, reload) | Works for lab testing because the generator emits it verbatim. Fragile: core's `OptionField` validation drops the value the next time that instance is saved in the GUI. |
+| Exclusive mode / other injection hacks | Do not help; the directive must reach the generated instance config. |
+
+Consequences for this plugin: the model deliberately does **not** validate the
+flag (a `performValidation` message is a hard error and would make the plugin
+un-enableable); the status panel reports it as a warning instead.
 
 ## Entra ID app registration (runbook)
 
@@ -227,8 +257,12 @@ Client profile: certificate-based profile exported from OPNsense, plus
 2. **One SSO instance in v1.** One daemon = one HTTP listener + one management
    connection. Multi-instance needs per-instance daemon configs and ports —
    the model is shaped to allow that later.
-3. **`management-client-auth` must be set manually** in the instance's various
-   flags (no core hook to inject it). The plugin validates and warns.
+3. **`management-client-auth` cannot be set through the stock UI at all** —
+   core's `various_flags` is a closed OptionField
+   ([details](#blocker-management-client-auth-is-not-settable-in-the-stock-ui)).
+   A core PR is the prerequisite for a supportable release; a `config.xml`
+   edit unblocks lab testing. The plugin reports the missing flag in its
+   status panel.
 4. **Client coverage** excludes NetworkManager and is partial for Connect v3.
 5. **Secret lifecycle**: Entra client secrets expire (max 24 months).
 
@@ -236,8 +270,9 @@ Client profile: certificate-based profile exported from OPNsense, plus
 
 - [ ] `security/openvpn-auth-oauth2` is present/buildable in the **opnsense/ports**
       fork (it is in FreeBSD ports; if absent, step 0 is a sync PR).
-- [ ] The `various_flags` validation mask in the core OpenVPN model accepts
-      `management-client-auth`.
+- [x] The `various_flags` validation mask in the core OpenVPN model accepts
+      `management-client-auth`. **Resolved: it does NOT** — closed OptionField,
+      see [the blocker section](#blocker-management-client-auth-is-not-settable-in-the-stock-ui).
 - [ ] Unix-socket rename swap on FreeBSD 14 behaves as described (10-line test
       on a lab box) and OpenVPN's behaviour on management re-bind.
 - [x] Exact `oauth2.provider` key for Entra in the daemon config (`generic` vs
@@ -253,8 +288,12 @@ Client profile: certificate-based profile exported from OPNsense, plus
 ## Roadmap
 
 1. Finish the scaffold into a working plugin; test on a 26.7 lab box
-   (procedure in the [README](../README.md)).
+   (procedure in the [README](../README.md)), using the `config.xml` workaround
+   for `management-client-auth`.
 2. Upstream contributions, in order of leverage:
+   - opnsense/core: **add `management-client-auth` to the instance
+     `various_flags` OptionValues** → unblocks supported use (prerequisite for
+     a release; one-line model change);
    - opnsense/core: configurable management socket path (or post-start hook)
      for instances → removes the socket swap;
    - FreeBSD build of the `.so` shim (Go c-shared on freebsd/amd64) → removes

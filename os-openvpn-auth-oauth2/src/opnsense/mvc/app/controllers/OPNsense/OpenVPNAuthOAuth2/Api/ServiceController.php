@@ -24,8 +24,6 @@ class ServiceController extends ApiMutableServiceControllerBase
      */
     public function detailsAction()
     {
-        // polled every 10s by the UI; never hold the session lock across configd
-        $this->sessionClose();
         $backend = new Backend();
         $response = (string)$backend->configdRun('openvpnauthoauth2 details');
         $data = json_decode(trim($response), true);

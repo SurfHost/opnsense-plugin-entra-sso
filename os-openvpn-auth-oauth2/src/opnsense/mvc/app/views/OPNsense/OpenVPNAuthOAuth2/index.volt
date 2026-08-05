@@ -49,6 +49,18 @@
                         'bad': "{{ lang._('unreachable') }}",
                         'off': "{{ lang._('disabled') }}"
                     }));
+                var flag = data['client_auth_flag'];
+                $("#status_client_auth").html(
+                    statusLabel(flag === true ? 'good' : (flag === false ? 'bad' : 'off'), {
+                        'good': "{{ lang._('present') }}",
+                        'bad': "{{ lang._('missing') }}",
+                        'off': "{{ lang._('unknown') }}"
+                    }));
+                if (flag === false) {
+                    $("#client_auth_warning").show();
+                } else {
+                    $("#client_auth_warning").hide();
+                }
             });
         }
 
@@ -90,8 +102,15 @@
                     <td>{{ lang._('Callback listener') }}</td>
                     <td id="status_listener"></td>
                 </tr>
+                <tr>
+                    <td>{{ lang._("OpenVPN 'management-client-auth'") }}</td>
+                    <td id="status_client_auth"></td>
+                </tr>
             </tbody>
         </table>
+        <div id="client_auth_warning" class="alert alert-warning" style="display:none; max-width: 60em;">
+            {{ lang._("The selected OpenVPN instance does not carry the 'management-client-auth' directive, so OpenVPN never asks this service to authorize client connects and SSO stays silent. The directive is not offered by the instance's Various Flags field in OPNsense core; see the plugin documentation for the current workaround.") }}
+        </div>
     </div>
 </div>
 

@@ -8,6 +8,12 @@ OPNsense's new OpenVPN **Instances**.
 > from the trust store, crash backoff) and the UI (settings form, live status
 > panel) are finished and the daemon config keys are verified against the
 > upstream wiki (v1.28). What remains is the lab test loop below.
+>
+> ⚠️ **Known blocker:** OPNsense core does not let you set the required
+> `management-client-auth` directive on an OpenVPN instance (its *Various
+> Flags* field is a closed list). Lab testing needs a `config.xml` edit, and a
+> one-line core PR is the prerequisite for supported use — see
+> [the investigation](docs/INVESTIGATION.md#blocker-management-client-auth-is-not-settable-in-the-stock-ui).
 
 ## What's here
 
@@ -49,9 +55,21 @@ rsync -av os-openvpn-auth-oauth2/src/ root@fw:/usr/local/
 ssh root@fw 'rm -rf /tmp/opnsense_mvc_cache* ; service configd restart ; service php_fpm restart'
 ```
 
-Then in the GUI: create/select an OpenVPN instance, add
-`management-client-auth` to its *various flags*, leave *Authentication* empty,
-and configure **VPN → OpenVPN → SSO** with your tenant/client credentials.
+Then create/select an OpenVPN instance and leave its *Authentication* empty.
+The `management-client-auth` directive cannot be added in the GUI, so for the
+lab loop patch it in directly (the config generator emits `various_flags`
+entries verbatim, so this works; re-saving that instance in the GUI drops it
+again):
+
+```sh
+# on the OPNsense test box, for the instance's <various_flags> node
+sed -i '' 's|<various_flags></various_flags>|<various_flags>management-client-auth</various_flags>|' /conf/config.xml
+configctl openvpn restart          # regenerate the instance config
+grep management /var/etc/openvpn/server*.conf   # expect the directive
+```
+
+Finally configure **VPN → OpenVPN → SSO** with your tenant/client credentials;
+the status panel's *management-client-auth* row must read **present**.
 
 Smoke tests:
 

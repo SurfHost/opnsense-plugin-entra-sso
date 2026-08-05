@@ -5,6 +5,7 @@ PLUGIN_NAME=		openvpn-auth-oauth2
 PLUGIN_VERSION=		0.1
 PLUGIN_COMMENT=		OpenVPN SSO via OpenID Connect (Microsoft Entra ID and others)
 PLUGIN_DEPENDS=		openvpn-auth-oauth2
+PLUGIN_LICENSE=		MIT
 PLUGIN_MAINTAINER=	hans@sector.nl
 PLUGIN_WWW=		https://github.com/SurfHost/opnsense-plugin-entra-sso
 

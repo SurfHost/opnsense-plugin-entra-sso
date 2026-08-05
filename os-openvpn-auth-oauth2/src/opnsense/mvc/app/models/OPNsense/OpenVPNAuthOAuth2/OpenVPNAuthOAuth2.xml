@@ -35,6 +35,8 @@
                 <Required>N</Required>
             </clientId>
             <clientSecret type="TextField">
+                <Mask>/^[^\r\n]{0,512}$/u</Mask>
+                <ValidationMessage>The client secret must not contain line breaks.</ValidationMessage>
                 <Required>N</Required>
             </clientSecret>
             <issuer type="TextField">
@@ -44,6 +46,8 @@
             </issuer>
             <scopes type="TextField">
                 <Default>openid profile offline_access</Default>
+                <Mask>/^[a-zA-Z0-9 ._:\/-]{0,512}$/u</Mask>
+                <ValidationMessage>Scopes must be a space-separated list without line breaks.</ValidationMessage>
                 <Required>N</Required>
             </scopes>
         </entra>
