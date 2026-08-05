@@ -73,7 +73,10 @@
                 <Required>Y</Required>
             </listenAddress>
             <listenPort type="PortField">
-                <Default>9000</Default>
+                <!-- upstream defaults to 9000, but OPNsense's php-fpm already
+                     listens on 127.0.0.1:9000, so binding the wildcard address
+                     there fails with EADDRINUSE -->
+                <Default>9443</Default>
                 <Required>Y</Required>
             </listenPort>
             <baseUrl type="TextField">

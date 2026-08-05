@@ -94,7 +94,7 @@
         <id>openvpnauthoauth2.http.listenPort</id>
         <label>Listen port</label>
         <type>text</type>
-        <help>TCP port of the callback listener; remember the matching firewall rule.</help>
+        <help>TCP port of the callback listener; remember the matching firewall rule and the redirect URI registered in Entra. Do not use 9000: OPNsense's php-fpm already listens there.</help>
     </field>
     <field>
         <id>openvpnauthoauth2.http.secret</id>

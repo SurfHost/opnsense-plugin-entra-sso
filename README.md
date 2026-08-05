@@ -40,7 +40,7 @@ silent while the auth token is valid.
 | **Client** | OpenVPN GUI 2.6+ (Windows), Tunnelblick 4.0.0b10+ (macOS), Viscosity, or OpenVPN3 3.9+ |
 
 Two ports must be reachable from the internet: the OpenVPN port itself
-(UDP 1194 by default) and the browser callback port (TCP 9000 by default).
+(UDP 1194 by default) and the browser callback port (TCP 9443 by default).
 
 > **Note on clients:** NetworkManager on Linux does not support browser
 > authentication and cannot be used. OpenVPN Connect v3 works only partially.
@@ -65,9 +65,9 @@ is asking when a user signs in.
      only (single tenant)*
    - **Redirect URI**: select platform **Web** and enter:
      ```
-     https://vpn.example.com:9000/oauth2/callback
+     https://vpn.example.com:9443/oauth2/callback
      ```
-     Replace `vpn.example.com` with your own hostname. Keep `:9000` and
+     Replace `vpn.example.com` with your own hostname. Keep `:9443` and
      `/oauth2/callback` exactly as shown unless you change the port later.
 5. Click **Register**.
 
@@ -130,7 +130,7 @@ This is the main reason to use SSO rather than passwords, so it is worth doing.
 | Directory (tenant) ID | App registration > Overview | `2c9f...-...-...-...-...b81e` |
 | Application (client) ID | App registration > Overview | `7a1b...-...-...-...-...4f3d` |
 | Client secret value | Certificates & secrets | `abc8Q~...` |
-| Public base URL | Chosen by you | `https://vpn.example.com:9000` |
+| Public base URL | Chosen by you | `https://vpn.example.com:9443` |
 
 ---
 
@@ -162,15 +162,23 @@ Go to **VPN > OpenVPN > Instances** and click **+**. The settings that matter:
 | **Protocol** / **Port number** | `UDP` / `1194` |
 | **Type** | `tun` |
 | **Certificate** | the server certificate from 2.1 |
-| **Certificate Authority** | the CA from 2.1 |
 | **Verify Client Certificate** | `Required` |
 | **Server (IPv4)** | a free subnet for VPN clients, e.g. `10.10.0.0/24` |
 | **Authentication** | **leave empty** (see the warning below) |
 | **Auth Token Lifetime** | `28800` (8 hours) |
-| **Renegotiate time** | `0` |
+| **Renegotiate time** | leave at the default `3600` |
 | **Local Network** | the networks clients should reach, e.g. `192.168.1.0/24` |
 
 Click **Save**, then enable the instance.
+
+There is no *Certificate Authority* field to fill in unless you enable
+**advanced mode**; the CA is taken from the certificate you selected. Only set
+it if your CA differs from the one that issued that certificate.
+
+> **Do not set *Renegotiate time* to 0.** OPNsense rejects that combination with
+> *"A token lifetime requires a non zero Renegotiate time"*. Renegotiation is
+> harmless here: the client presents its auth token instead of returning to the
+> browser, which is exactly what **Auth Token Lifetime** is for.
 
 > ⚠️ **Leave *Authentication* empty.** It sits under the *Authentication*
 > section and normally points at a local or LDAP user database. If you set it,
@@ -204,7 +212,8 @@ If you already run OpenVPN, open the instance under **VPN > OpenVPN >
 Instances** and confirm:
 
 - [ ] **Authentication** is empty
-- [ ] **Auth Token Lifetime** is set (e.g. `28800`) and **Renegotiate time** is `0`
+- [ ] **Auth Token Lifetime** is set (e.g. `28800`) and **Renegotiate time** is
+      non-zero (the default `3600` is fine)
 - [ ] **Verify Client Certificate** is `Required`, and your users have client
       certificates
 
@@ -259,7 +268,7 @@ pkg update
 
 ### 4.1 Certificate for the callback listener
 
-The browser connects to your firewall at `https://vpn.example.com:9000`, so that
+The browser connects to your firewall at `https://vpn.example.com:9443`, so that
 listener needs a certificate your users' browsers trust. A self-signed
 certificate produces a warning page and some VPN clients refuse it outright.
 
@@ -280,8 +289,8 @@ Go to **VPN > OpenVPN > SSO (OAuth2 / Entra ID)**:
 | **Client ID** | Application (client) ID from step 1 |
 | **Client secret** | the secret *value* from step 1 |
 | **Allowed groups** | leave empty if you used *Assignment required* in 1.4 |
-| **Public base URL** | `https://vpn.example.com:9000`, must match the redirect URI in Entra exactly |
-| **Listen port** | `9000` |
+| **Public base URL** | `https://vpn.example.com:9443`, must match the redirect URI in Entra exactly |
+| **Listen port** | `9443` |
 | **Encryption secret** | 16, 24 or 32 random letters and digits |
 | **Enable TLS** | ticked |
 | **Certificate** | the certificate from 4.1 |
@@ -311,7 +320,7 @@ Click **Save**. The plugin now:
 | Action | Pass |
 | Protocol | TCP |
 | Destination | WAN address |
-| Destination port | 9000 |
+| Destination port | 9443 |
 
 Restrict the source to the networks your users browse from if you can. The
 listener only serves OAuth2 endpoints, but there is no reason to expose it more
@@ -382,9 +391,9 @@ configctl openvpnauthoauth2 details
 | Plugin menu entry missing after install | `service configd restart && service php_fpm restart` |
 | Status: **management-client-auth missing** | Someone re-saved the OpenVPN instance in the GUI, which silently drops the directive. Press **Save** on the SSO page to restore it. |
 | Status: **daemon not running** | Usually a bad tenant/client ID or an unreachable Entra endpoint. Check the log for the actual error. |
-| Status: **callback listener unreachable** | The daemon failed to bind, often a certificate problem or a port already in use. Check the log and `sockstat -l \| grep 9000`. |
+| Status: **callback listener unreachable** | The daemon failed to bind, often a certificate problem or a port already in use. Check the log and `sockstat -l \| grep 9443`. **Do not use port 9000**: OPNsense's php-fpm listens on `127.0.0.1:9000`, so binding the wildcard address there fails. |
 | Browser never opens on connect | The client does not support browser authentication, or `auth-retry interact` is missing from the profile. |
-| Browser opens but cannot load the page | DNS for your base URL does not point at the firewall, or the WAN rule for TCP 9000 is missing. |
+| Browser opens but cannot load the page | DNS for your base URL does not point at the firewall, or the WAN rule for TCP 9443 is missing. |
 | Certificate warning in the browser | The listener certificate is self-signed or does not match the hostname in the base URL. |
 | `AADSTS7000215` (invalid client secret) | Wrong secret, or the *Secret ID* was copied instead of the *Value*. |
 | `AADSTS50011` (redirect URI mismatch) | The redirect URI in Entra must be exactly your base URL plus `/oauth2/callback`. |

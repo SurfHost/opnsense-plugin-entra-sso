@@ -389,7 +389,7 @@ def reconcile_idle():
     have died uncleanly, and the freshly rendered conf (disabled, or no
     instance) carries no socket paths to work from."""
     kill_orphan_daemons()
-    for swapped in glob.glob(os.path.join(SWAP_DIR, 'server*.sock')):
+    for swapped in glob.glob(os.path.join(SWAP_DIR, '*.sock')):
         restore_socket(os.path.join(GUI_DIR, os.path.basename(swapped)), swapped)
 
 

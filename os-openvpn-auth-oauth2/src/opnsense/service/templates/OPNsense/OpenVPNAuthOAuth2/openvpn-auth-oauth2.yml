@@ -72,18 +72,22 @@ oauth2:
     enabled: true
     secret: {{ q(secret) }}
 
+{# core names an instance's management socket after its UUID, not its vpnid:
+   OpenVPN.php sets management to {sockFilename} = /var/etc/openvpn/
+   instance-{uuid}.sock. The server{vpnid}.sock form only applies to the
+   legacy (pre-Instances) OpenVPN servers. #}
 openvpn:
 {% if cfg.daemon.passthroughEnabled|default('', true) == '1' %}
-  addr: "unix:///var/etc/openvpn-auth-oauth2/server{{ vpnid.value }}.sock"
+  addr: "unix:///var/etc/openvpn-auth-oauth2/instance-{{ instance_uuid }}.sock"
 {% else %}
-  addr: "unix:///var/etc/openvpn/server{{ vpnid.value }}.sock"
+  addr: "unix:///var/etc/openvpn/instance-{{ instance_uuid }}.sock"
 {% endif %}
   auth-token-user: true
   auth-pending-timeout: {{ cfg.validation.authTimeout|default('180', true) }}s
 {% if cfg.daemon.passthroughEnabled|default('', true) == '1' %}
   pass-through:
     enabled: true
-    address: "unix:///var/etc/openvpn/server{{ vpnid.value }}.sock"
+    address: "unix:///var/etc/openvpn/instance-{{ instance_uuid }}.sock"
 {% endif %}
 
 log:
