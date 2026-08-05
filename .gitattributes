@@ -1,0 +1,3 @@
+# This tree is deployed to FreeBSD by rsync from any checkout, including
+# Windows ones: force LF so shebang scripts never pick up CRLF.
+* text=auto eol=lf
