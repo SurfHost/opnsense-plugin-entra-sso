@@ -362,9 +362,16 @@ Go to **System > Trust > Certificates**, click **Add**, and choose:
 
 ### 5.2 Export the profile
 
-Go to **VPN > OpenVPN > Client Export** and select your instance. The list
-underneath shows one row per client certificate. Download the `.ovpn` from the
-row for the certificate you just created, using export type **File Only**.
+Go to **VPN > OpenVPN > Client Export** and select your instance.
+
+**Then change the certificate dropdown.** It defaults to *"(none) Exclude
+certificate from export"*, and exporting with that selected fails with
+*"Client certificate not found"*. Pick the client certificate you created in
+5.1, choose export type **File Only**, and download the `.ovpn`.
+
+If your certificate is not in that dropdown, it was issued by a different CA
+than the instance uses. The list only offers certificates whose CA matches, so
+recreate it under the correct CA.
 
 Open the file in a text editor and confirm it contains a `<cert>` block and a
 `<key>` block. Those are the client's authentication method, and without them
@@ -412,7 +419,8 @@ configctl openvpnauthoauth2 details
 | Status: **management-client-auth missing** | Someone re-saved the OpenVPN instance in the GUI, which silently drops the directive. Press **Save** on the SSO page to restore it. |
 | Status: **daemon not running** | Usually a bad tenant/client ID or an unreachable Entra endpoint. Check the log for the actual error. |
 | Status: **callback listener unreachable** | The daemon failed to bind, often a certificate problem or a port already in use. Check the log and `sockstat -l \| grep 9443`. **Do not use port 9000**: OPNsense's php-fpm listens on `127.0.0.1:9000`, so binding the wildcard address there fails. |
-| `Options error: No client-side authentication method is specified` | The exported profile has no `<cert>`/`<key>` block. Export it from the row of a **Client Certificate** in Client Export, not from a profile without one. |
+| Export fails with **Client certificate not found** | The certificate dropdown in Client Export was left on *"(none) Exclude certificate from export"*. Select the actual client certificate. If it is not listed, its CA does not match the instance's CA. |
+| `Options error: No client-side authentication method is specified` | The exported profile has no `<cert>`/`<key>` block, i.e. it was exported with the certificate excluded. Re-export with the certificate selected. |
 | Browser never opens on connect | The client does not support browser authentication, or the profile disconnects too early (try adding `auth-retry interact`). |
 | Browser opens but cannot load the page | DNS for your base URL does not point at the firewall, or the WAN rule for TCP 9443 is missing. |
 | Certificate warning in the browser | The listener certificate is self-signed or does not match the hostname in the base URL. |
