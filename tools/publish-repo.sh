@@ -66,21 +66,34 @@ rm -rf "${STAGE:?}/${ABI}"
 mkdir -p "${STAGE}/${ABI}"
 cp "${PKGFILE}" "${STAGE}/${ABI}/"
 
+# The repository must always carry the daemon: publishing replaces the ABI
+# directory wholesale, so omitting it would delete the dependency and break
+# every install. Prefer an explicit file, otherwise regenerate one from the
+# locally installed package.
 DAEMON_PKG=${DAEMON_PKG:-}
-if [ -n "${DAEMON_PKG}" ]; then
-    [ -f "${DAEMON_PKG}" ] || { echo "!!! DAEMON_PKG ${DAEMON_PKG} not found" >&2; exit 1; }
+if [ -n "${DAEMON_PKG}" ] && [ -f "${DAEMON_PKG}" ]; then
     cp "${DAEMON_PKG}" "${STAGE}/${ABI}/"
     echo "    mirroring $(basename "${DAEMON_PKG}")"
-elif ! pkg info -e openvpn-auth-oauth2 2>/dev/null; then
-    cat >&2 <<'EOF'
-!!! the openvpn-auth-oauth2 daemon is not installed and DAEMON_PKG is unset.
+elif pkg info -e openvpn-auth-oauth2 2>/dev/null; then
+    if [ -n "${DAEMON_PKG}" ]; then
+        echo "    ${DAEMON_PKG} is gone; regenerating from the installed package"
+    else
+        echo "    regenerating the daemon package from the installed copy"
+    fi
+    pkg create -o "${STAGE}/${ABI}" openvpn-auth-oauth2
+else
+    cat >&2 <<EOF
+!!! the openvpn-auth-oauth2 daemon is neither installed nor available as a file.
     The plugin depends on it at build time and at install time, and OPNsense
-    does not ship it. See "Building and publishing a release" in the README.
+    does not ship it. Fetch it first:
+
+      fetch -o /tmp/openvpn-auth-oauth2.pkg \\
+        https://pkg.freebsd.org/${ABI}/latest/All/openvpn-auth-oauth2-1.28.0_1.pkg
+      pkg add /tmp/openvpn-auth-oauth2.pkg
+
+    See "The daemon dependency" in the README.
 EOF
     exit 1
-else
-    echo "    note: daemon installed locally but not mirrored (set DAEMON_PKG"
-    echo "          so that other firewalls can resolve the dependency)"
 fi
 
 pkg repo "${STAGE}/${ABI}"
