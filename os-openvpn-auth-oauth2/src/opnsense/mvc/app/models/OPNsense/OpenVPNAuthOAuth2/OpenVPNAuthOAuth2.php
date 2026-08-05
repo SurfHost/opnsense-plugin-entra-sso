@@ -48,9 +48,9 @@ class OpenVPNAuthOAuth2 extends BaseModel
             }
         }
 
-        if ($enabled && (string)$this->entra->tenantId === '') {
+        if ($enabled && (string)$this->entra->tenantId === '' && (string)$this->entra->issuer === '') {
             $messages->appendMessage(
-                new Message(gettext('A tenant ID is required when the service is enabled.'), 'entra.tenantId')
+                new Message(gettext('A tenant ID (or a custom issuer URL) is required when the service is enabled.'), 'entra.tenantId')
             );
         }
         if ($enabled && (string)$this->entra->clientId === '') {
@@ -61,6 +61,17 @@ class OpenVPNAuthOAuth2 extends BaseModel
         if ($enabled && (string)$this->http->baseUrl === '') {
             $messages->appendMessage(
                 new Message(gettext('A public base URL is required when the service is enabled.'), 'http.baseUrl')
+            );
+        }
+        if ($enabled && (string)$this->http->secret === '') {
+            $messages->appendMessage(
+                new Message(gettext('An encryption secret (16, 24 or 32 characters) is required when the service is enabled.'), 'http.secret')
+            );
+        }
+        $listen = (string)$this->http->listenAddress;
+        if ($listen !== '' && filter_var($listen, FILTER_VALIDATE_IP) === false) {
+            $messages->appendMessage(
+                new Message(gettext('Listen address must be an IPv4 or IPv6 address.'), 'http.listenAddress')
             );
         }
         if ($enabled && (string)$this->http->tlsEnabled === '1' && (string)$this->http->certificate === '') {

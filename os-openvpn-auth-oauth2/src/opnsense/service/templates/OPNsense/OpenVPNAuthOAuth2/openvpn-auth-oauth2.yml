@@ -1,68 +1,89 @@
 {#
  # openvpn-auth-oauth2 daemon configuration, rendered by configd.
- # DRAFT: key names follow the upstream Configuration wiki (v1.28); verify on
- # first lab deployment. Secrets end up in this file — it is installed 0600.
+ # Key names verified against the upstream Configuration wiki (v1.28, Aug 2026).
+ # Careful: configd hands EMPTY config.xml elements to jinja as None, not '',
+ # so every optional leaf goes through |default('', true) (the boolean makes
+ # it also replace None). Free-form values are escaped for double-quoted YAML.
+ # Secrets end up in this file, so it is installed 0600.
  #}
+{% macro q(value) %}"{{ value|replace('\\', '\\\\')|replace('"', '\\"') }}"{% endmacro %}
 {% if helpers.exists('OPNsense.OpenVPNAuthOAuth2.general.enabled') and OPNsense.OpenVPNAuthOAuth2.general.enabled == '1' %}
 {% set cfg = OPNsense.OpenVPNAuthOAuth2 %}
-{% set instance_uuid = cfg.general.vpnInstance %}
+{% set instance_uuid = cfg.general.vpnInstance|default('', true) %}
 {% set vpnid = namespace(value='') %}
-{% if helpers.exists('OPNsense.OpenVPN.Instances.Instance') %}
+{% set has_instances = helpers.exists('OPNsense.OpenVPN') and OPNsense.OpenVPN is mapping
+       and helpers.exists('OPNsense.OpenVPN.Instances') and OPNsense.OpenVPN.Instances is mapping
+       and helpers.exists('OPNsense.OpenVPN.Instances.Instance') %}
+{% if has_instances %}
 {%   for instance in helpers.toList('OPNsense.OpenVPN.Instances.Instance') %}
 {%     if instance['@uuid'] == instance_uuid %}
 {%       set vpnid.value = instance.vpnid %}
 {%     endif %}
 {%   endfor %}
 {% endif %}
+{% set secret = cfg.http.secret|default('', true) %}
+{% set listen_addr = cfg.http.listenAddress|default('', true) %}
+{% set issuer = cfg.entra.issuer|default('', true) %}
+{% set client_secret = cfg.entra.clientSecret|default('', true) %}
+{% set scopes = cfg.entra.scopes|default('', true) %}
+{% set groups = cfg.validation.allowedGroups|default('', true) %}
 http:
-  listen: "{{ cfg.http.listenAddress }}:{{ cfg.http.listenPort }}"
-  baseurl: "{{ cfg.http.baseUrl }}"
-{% if cfg.http.secret != '' %}
-  secret: "{{ cfg.http.secret }}"
+  listen: "{% if ':' in listen_addr %}[{{ listen_addr }}]{% else %}{{ listen_addr }}{% endif %}:{{ cfg.http.listenPort|default('', true) }}"
+  baseurl: {{ q(cfg.http.baseUrl|default('', true)) }}
+  secret: {{ q(secret) }}
+{% if cfg.validation.validateIpAddr|default('', true) == '1' %}
+  check:
+    ipaddr: true
 {% endif %}
-{% if cfg.http.tlsEnabled == '1' %}
+{% if cfg.http.tlsEnabled|default('', true) == '1' %}
   tls: true
   # exported from the OPNsense trust store by the supervisor at service start
-  cert-file: /usr/local/etc/openvpn-auth-oauth2/http.crt
-  key-file: /usr/local/etc/openvpn-auth-oauth2/http.key
-{% else %}
-  tls: false
+  cert: /usr/local/etc/openvpn-auth-oauth2/http.crt
+  key: /usr/local/etc/openvpn-auth-oauth2/http.key
 {% endif %}
 
 oauth2:
-  issuer: "https://login.microsoftonline.com/{{ cfg.entra.tenantId }}/v2.0"
-  provider: "{{ cfg.entra.provider }}"
+{% if issuer != '' %}
+  issuer: {{ q(issuer) }}
+{% else %}
+  issuer: "https://login.microsoftonline.com/{{ cfg.entra.tenantId|default('', true) }}/v2.0"
+{% endif %}
   client:
-    id: "{{ cfg.entra.clientId }}"
-    secret: "{{ cfg.entra.clientSecret }}"
+    id: {{ q(cfg.entra.clientId|default('', true)) }}
+{% if client_secret != '' %}
+    secret: {{ q(client_secret) }}
+{% endif %}
+{% if scopes != '' %}
   scopes:
-{% for scope in cfg.entra.scopes.split(' ') if scope != '' %}
-    - "{{ scope }}"
+{% for scope in scopes.split(' ') if scope != '' %}
+    - {{ q(scope) }}
 {% endfor %}
+{% endif %}
+{% if groups != '' %}
   validate:
-{% if cfg.validation.allowedGroups != '' %}
     groups:
-{% for group in cfg.validation.allowedGroups.split(',') if group != '' %}
-      - "{{ group }}"
+{% for group in groups.split(',') if group != '' %}
+      - {{ q(group) }}
 {% endfor %}
 {% endif %}
-{% if cfg.validation.validateCommonName == '1' %}
-    common-name: "preferred_username"
-{% endif %}
-    ipaddr: {{ 'true' if cfg.validation.validateIpAddr == '1' else 'false' }}
   refresh:
     enabled: true
+    secret: {{ q(secret) }}
 
 openvpn:
-  addr: "unix:///var/run/openvpn-auth-oauth2/server{{ vpnid.value }}.sock"
+{% if cfg.daemon.passthroughEnabled|default('', true) == '1' %}
+  addr: "unix:///var/etc/openvpn-auth-oauth2/server{{ vpnid.value }}.sock"
+{% else %}
+  addr: "unix:///var/etc/openvpn/server{{ vpnid.value }}.sock"
+{% endif %}
   auth-token-user: true
-  auth-pending-timeout: {{ cfg.validation.authTimeout }}s
-{% if cfg.daemon.passthroughEnabled == '1' %}
+  auth-pending-timeout: {{ cfg.validation.authTimeout|default('180', true) }}s
+{% if cfg.daemon.passthroughEnabled|default('', true) == '1' %}
   pass-through:
     enabled: true
     address: "unix:///var/etc/openvpn/server{{ vpnid.value }}.sock"
 {% endif %}
 
 log:
-  level: {{ cfg.daemon.logLevel }}
+  level: {{ cfg.daemon.logLevel|default('info', true) }}
 {% endif %}

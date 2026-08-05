@@ -10,7 +10,9 @@
 # Supervises openvpn-auth-oauth2 through supervisor.py, which owns the
 # management-socket swap and (re)spawns the Go daemon. The rc script shipped
 # with the security/openvpn-auth-oauth2 port stays disabled; this one is the
-# single entry point used by configd.
+# single entry point used by configd. daemon(8) holds the pidfile, restarts
+# the supervisor if it ever dies (-R) and forwards the supervisor's and the
+# Go daemon's stdout/stderr to syslog (-S -T).
 
 . /etc/rc.subr
 
@@ -22,8 +24,9 @@ load_rc_config ${name}
 : ${openvpnauthoauth2_enable:="NO"}
 
 pidfile="/var/run/${name}.pid"
-procname="/usr/local/bin/python3"
+child_pidfile="/var/run/${name}.child.pid"
+supervisor="/usr/local/opnsense/scripts/OPNsense/OpenVPNAuthOAuth2/supervisor.py"
 command="/usr/sbin/daemon"
-command_args="-f -P ${pidfile} -t ${name} -r /usr/local/opnsense/scripts/OPNsense/OpenVPNAuthOAuth2/supervisor.py"
+command_args="-S -T openvpn-auth-oauth2 -R 5 -f -P ${pidfile} -p ${child_pidfile} /usr/local/bin/python3 ${supervisor}"
 
 run_rc_command "$1"

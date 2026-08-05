@@ -127,10 +127,12 @@ Because core hardcodes the socket path, the plugin's supervisor performs a
 **socket swap** per SSO-enabled instance:
 
 1. OpenVPN starts and binds `S = /var/etc/openvpn/server{vpnid}.sock`.
-2. Supervisor renames `S` → `/var/run/openvpn-auth-oauth2/server{vpnid}.sock`.
+2. Supervisor renames `S` → `/var/etc/openvpn-auth-oauth2/server{vpnid}.sock`.
    A rename preserves the bound unix-socket inode; OpenVPN keeps listening.
+   (The swap directory deliberately sits next to `/var/etc/openvpn` so the
+   rename can never cross a filesystem boundary, e.g. a tmpfs `/var/run`.)
 3. Supervisor starts the daemon with
-   `openvpn.addr = unix:///var/run/openvpn-auth-oauth2/server{vpnid}.sock` and
+   `openvpn.addr = unix:///var/etc/openvpn-auth-oauth2/server{vpnid}.sock` and
    `openvpn.pass-through.address = unix:///var/etc/openvpn/server{vpnid}.sock`.
 4. The GUI reconnects to the original path and lands on the pass-through
    listener, transparently.
@@ -238,8 +240,15 @@ Client profile: certificate-based profile exported from OPNsense, plus
       `management-client-auth`.
 - [ ] Unix-socket rename swap on FreeBSD 14 behaves as described (10-line test
       on a lab box) and OpenVPN's behaviour on management re-bind.
-- [ ] Exact `oauth2.provider` key for Entra in the daemon config (`generic` vs
+- [x] Exact `oauth2.provider` key for Entra in the daemon config (`generic` vs
       a dedicated Azure provider id) and minimal scopes.
+      **Resolved (Aug 2026, upstream wiki v1.28):** Entra ID uses the default
+      `generic` provider (no dedicated id); `openid profile` are default
+      scopes, `offline_access` is needed for refresh. Further key corrections
+      applied to the template: TLS files are `http.cert`/`http.key`,
+      browser-vs-VPN IP matching is `http.check.ipaddr` (not
+      `oauth2.validate.ipaddr`), there is no `oauth2.validate.common-name`,
+      and `oauth2.refresh.enabled` requires an `oauth2.refresh.secret`.
 
 ## Roadmap
 

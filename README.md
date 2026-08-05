@@ -4,10 +4,10 @@ Microsoft Entra ID single sign-on for OpenVPN on OPNsense, built around
 [openvpn-auth-oauth2](https://github.com/jkroepke/openvpn-auth-oauth2) and
 OPNsense's new OpenVPN **Instances**.
 
-> **Status: scaffold.** The investigation is complete and the plugin skeleton is
-> in place; the supervisor and UI need finishing and lab testing before first use.
-> This directory is designed to become its own repository
-> (`SurfHost/opnsense-plugin-entra-sso`).
+> **Status: code complete, untested.** The supervisor (socket swap, TLS export
+> from the trust store, crash backoff) and the UI (settings form, live status
+> panel) are finished and the daemon config keys are verified against the
+> upstream wiki (v1.28). What remains is the lab test loop below.
 
 ## What's here
 
@@ -59,8 +59,9 @@ Smoke tests:
 configctl template reload OPNsense/OpenVPNAuthOAuth2   # YAML renders
 configctl openvpnauthoauth2 start
 configctl openvpnauthoauth2 status
+configctl openvpnauthoauth2 details                     # JSON health probe (feeds the UI panel)
 sockstat -l | grep 9000                                 # HTTPS listener up
-ls -l /var/etc/openvpn/server*.sock /var/run/openvpn-auth-oauth2/   # socket swap done
+ls -l /var/etc/openvpn/server*.sock /var/etc/openvpn-auth-oauth2/   # socket swap done
 ```
 
 Finally connect with OpenVPN GUI / Tunnelblick: the browser should open the

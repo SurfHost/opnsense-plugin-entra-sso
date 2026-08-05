@@ -25,26 +25,23 @@
         </general>
         <entra>
             <tenantId type="TextField">
-                <Mask>/^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$/u</Mask>
-                <ValidationMessage>Tenant ID must be a GUID.</ValidationMessage>
+                <Mask>/^([0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}|[a-zA-Z0-9][a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})$/u</Mask>
+                <ValidationMessage>Tenant ID must be a GUID or a tenant domain (e.g. contoso.onmicrosoft.com).</ValidationMessage>
                 <Required>N</Required>
             </tenantId>
             <clientId type="TextField">
-                <Mask>/^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$/u</Mask>
-                <ValidationMessage>Client ID must be a GUID.</ValidationMessage>
+                <Mask>/^\S{1,255}$/u</Mask>
+                <ValidationMessage>Client ID must not contain whitespace.</ValidationMessage>
                 <Required>N</Required>
             </clientId>
             <clientSecret type="TextField">
                 <Required>N</Required>
             </clientSecret>
-            <provider type="OptionField">
-                <Default>generic</Default>
-                <OptionValues>
-                    <generic>Generic OIDC</generic>
-                    <azuread>Microsoft Entra ID</azuread>
-                </OptionValues>
-                <Required>Y</Required>
-            </provider>
+            <issuer type="TextField">
+                <Mask>/^https:\/\/.+$/u</Mask>
+                <ValidationMessage>The issuer must be a https URL.</ValidationMessage>
+                <Required>N</Required>
+            </issuer>
             <scopes type="TextField">
                 <Default>openid profile offline_access</Default>
                 <Required>N</Required>
@@ -54,10 +51,6 @@
             <allowedGroups type="CSVListField">
                 <Required>N</Required>
             </allowedGroups>
-            <validateCommonName type="BooleanField">
-                <Default>0</Default>
-                <Required>Y</Required>
-            </validateCommonName>
             <validateIpAddr type="BooleanField">
                 <Default>0</Default>
                 <Required>Y</Required>

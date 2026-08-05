@@ -11,30 +11,34 @@
         <type>dropdown</type>
         <help>The OpenVPN server instance to protect with SSO. The instance must have 'management-client-auth' in its various flags and no authentication backend configured.</help>
     </field>
-    <separator>Identity provider (Microsoft Entra ID)</separator>
     <field>
-        <id>openvpnauthoauth2.entra.provider</id>
-        <label>Provider</label>
-        <type>dropdown</type>
-        <help>OIDC provider profile. Use 'Microsoft Entra ID' unless connecting a different IdP.</help>
+        <type>header</type>
+        <label>Identity provider (Microsoft Entra ID)</label>
     </field>
     <field>
         <id>openvpnauthoauth2.entra.tenantId</id>
         <label>Tenant ID</label>
         <type>text</type>
-        <help>Entra ID directory (tenant) GUID; used to derive the issuer URL.</help>
+        <help>Entra ID directory (tenant) GUID or tenant domain; used to derive the issuer URL.</help>
+    </field>
+    <field>
+        <id>openvpnauthoauth2.entra.issuer</id>
+        <label>Custom issuer URL</label>
+        <type>text</type>
+        <advanced>true</advanced>
+        <help>Overrides the issuer derived from the tenant ID. Leave empty for Entra ID; set to connect a different OIDC provider (e.g. https://idp.example.com).</help>
     </field>
     <field>
         <id>openvpnauthoauth2.entra.clientId</id>
         <label>Client ID</label>
         <type>text</type>
-        <help>Application (client) ID of the Entra app registration.</help>
+        <help>Application (client) ID of the app registration. For Entra ID this is a GUID; other OIDC providers may use any identifier.</help>
     </field>
     <field>
         <id>openvpnauthoauth2.entra.clientSecret</id>
         <label>Client secret</label>
         <type>password</type>
-        <help>Client secret of the app registration. Note the expiry date: Entra secrets are valid for at most 24 months.</help>
+        <help>Client secret of the app registration. Leave empty for a public client (PKCE). Note the expiry date: Entra secrets are valid for at most 24 months.</help>
     </field>
     <field>
         <id>openvpnauthoauth2.entra.scopes</id>
@@ -43,7 +47,10 @@
         <advanced>true</advanced>
         <help>Space-separated OIDC scopes requested from the provider.</help>
     </field>
-    <separator>Authorization</separator>
+    <field>
+        <type>header</type>
+        <label>Authorization</label>
+    </field>
     <field>
         <id>openvpnauthoauth2.validation.allowedGroups</id>
         <label>Allowed groups</label>
@@ -53,18 +60,11 @@
         <help>Entra ID group object IDs allowed to connect. Empty allows every authenticated user.</help>
     </field>
     <field>
-        <id>openvpnauthoauth2.validation.validateCommonName</id>
-        <label>Match certificate CN</label>
-        <type>checkbox</type>
-        <advanced>true</advanced>
-        <help>Require the client certificate common name to match the authenticated user.</help>
-    </field>
-    <field>
         <id>openvpnauthoauth2.validation.validateIpAddr</id>
         <label>Match IP address</label>
         <type>checkbox</type>
         <advanced>true</advanced>
-        <help>Require the browser session and the VPN client to come from the same IP address.</help>
+        <help>Require the browser session and the VPN client to come from the same IP address. Breaks logins when browser and VPN client take different network paths (e.g. CGNAT).</help>
     </field>
     <field>
         <id>openvpnauthoauth2.validation.authTimeout</id>
@@ -73,25 +73,34 @@
         <advanced>true</advanced>
         <help>How long a client may take to finish the browser login.</help>
     </field>
-    <separator>Callback listener</separator>
+    <field>
+        <type>header</type>
+        <label>Callback listener</label>
+    </field>
     <field>
         <id>openvpnauthoauth2.http.baseUrl</id>
         <label>Public base URL</label>
         <type>text</type>
-        <help>URL the user's browser reaches the firewall on, e.g. https://vpn.example.nl:9000 — must match DNS and the certificate, and be registered as redirect URI base in Entra.</help>
+        <help>URL the user's browser reaches the firewall on, e.g. https://vpn.example.nl:9000; it must match DNS and the certificate, and be registered as redirect URI base in Entra.</help>
     </field>
     <field>
         <id>openvpnauthoauth2.http.listenAddress</id>
         <label>Listen address</label>
         <type>text</type>
         <advanced>true</advanced>
-        <help>Local address the callback listener binds to.</help>
+        <help>Local IPv4 or IPv6 address the callback listener binds to.</help>
     </field>
     <field>
         <id>openvpnauthoauth2.http.listenPort</id>
         <label>Listen port</label>
         <type>text</type>
         <help>TCP port of the callback listener; remember the matching firewall rule.</help>
+    </field>
+    <field>
+        <id>openvpnauthoauth2.http.secret</id>
+        <label>Encryption secret</label>
+        <type>password</type>
+        <help>Random secret of exactly 16, 24 or 32 alphanumeric characters. Encrypts the browser state cookies and stored refresh tokens.</help>
     </field>
     <field>
         <id>openvpnauthoauth2.http.tlsEnabled</id>
@@ -105,13 +114,16 @@
         <type>dropdown</type>
         <help>Server certificate from the OPNsense trust store for the HTTPS listener.</help>
     </field>
-    <separator>Advanced</separator>
+    <field>
+        <type>header</type>
+        <label>Advanced</label>
+    </field>
     <field>
         <id>openvpnauthoauth2.daemon.passthroughEnabled</id>
         <label>GUI status pass-through</label>
         <type>checkbox</type>
         <advanced>true</advanced>
-        <help>Keep VPN → OpenVPN → Connection Status working by proxying the management socket. Disable ("exclusive mode") only if the socket swap misbehaves.</help>
+        <help>Keep VPN &gt; OpenVPN &gt; Connection Status working by proxying the management socket. Disable ("exclusive mode") only if the socket swap misbehaves.</help>
     </field>
     <field>
         <id>openvpnauthoauth2.daemon.logLevel</id>
