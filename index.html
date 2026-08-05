@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SurfHost OPNsense plugin repository</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; line-height: 1.6;
+         max-width: 46rem; margin: 3rem auto; padding: 0 1.25rem; }
+  code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  pre { background: rgba(127,127,127,.12); padding: 1rem; border-radius: .5rem;
+        overflow-x: auto; }
+  h1 { font-size: 1.6rem; }
+  footer { margin-top: 3rem; font-size: .9rem; opacity: .75; }
+</style>
+</head>
+<body>
+<h1>SurfHost OPNsense plugin repository</h1>
+<p>Package repository for OPNsense plugins published by SurfHost. Add it on your
+firewall, then install the plugins from
+<em>System &gt; Firmware &gt; Plugins</em> as usual.</p>
+
+<pre>fetch -o /usr/local/etc/pkg/repos/surfhost.conf \
+    https://surfhost.github.io/opnsense-plugin-entra-sso/surfhost.conf
+pkg update</pre>
+
+<h2>Available plugins</h2>
+<ul>
+  <li><strong>os-openvpn-auth-oauth2</strong> &mdash; Microsoft Entra ID single
+      sign-on for OpenVPN
+      (<a href="https://github.com/SurfHost/opnsense-plugin-entra-sso">source and
+      documentation</a>)</li>
+</ul>
+
+<footer>
+  Hosted from the <code>gh-pages</code> branch of
+  <a href="https://github.com/SurfHost/opnsense-plugin-entra-sso">SurfHost/opnsense-plugin-entra-sso</a>.
+</footer>
+</body>
+</html>
