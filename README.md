@@ -358,7 +358,13 @@ Go to **System > Trust > Certificates**, click **Add**, and choose:
 | **Method** | `Create an internal certificate` |
 | **Certificate authority** | the CA that issued your server certificate |
 | **Type** | `Client Certificate` |
-| **Common Name** | the user, e.g. `hans` |
+| **Common Name** | the user, e.g. `hans` (**required**, see below) |
+
+The **Common Name** is not optional. A certificate created without one gets a
+subject like `/C=NL`, and the export then fails with *"Client certificate not
+found"* because there is no name to write into the profile. After creating it,
+check the **Name** column in the certificate list: it must read `/CN=hans`, not
+just `/C=NL`.
 
 ### 5.2 Export the profile
 
@@ -419,7 +425,8 @@ configctl openvpnauthoauth2 details
 | Status: **management-client-auth missing** | Someone re-saved the OpenVPN instance in the GUI, which silently drops the directive. Press **Save** on the SSO page to restore it. |
 | Status: **daemon not running** | Usually a bad tenant/client ID or an unreachable Entra endpoint. Check the log for the actual error. |
 | Status: **callback listener unreachable** | The daemon failed to bind, often a certificate problem or a port already in use. Check the log and `sockstat -l \| grep 9443`. **Do not use port 9000**: OPNsense's php-fpm listens on `127.0.0.1:9000`, so binding the wildcard address there fails. |
-| Export fails with **Client certificate not found** | The certificate dropdown in Client Export was left on *"(none) Exclude certificate from export"*. Select the actual client certificate. If it is not listed, its CA does not match the instance's CA. |
+| Export fails with **Client certificate not found** | Either the *"(none) Exclude certificate from export"* row was used, or the certificate has no Common Name (its **Name** column reads `/C=NL` rather than `/CN=...`). Recreate it with a Common Name. |
+| Export fails with **Certificate does not belong to server CA** | You picked a *server* certificate. Export only accepts client certificates issued by the instance's CA. |
 | `Options error: No client-side authentication method is specified` | The exported profile has no `<cert>`/`<key>` block, i.e. it was exported with the certificate excluded. Re-export with the certificate selected. |
 | Browser never opens on connect | The client does not support browser authentication, or the profile disconnects too early (try adding `auth-retry interact`). |
 | Browser opens but cannot load the page | DNS for your base URL does not point at the firewall, or the WAN rule for TCP 9443 is missing. |
