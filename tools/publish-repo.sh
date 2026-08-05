@@ -12,11 +12,17 @@
 #   ./tools/publish-repo.sh              # build + stage, print next steps
 #   PUBLISH=1 ./tools/publish-repo.sh    # build + stage + push to gh-pages
 #
+# The repository also carries the openvpn-auth-oauth2 daemon itself, because
+# OPNsense does not build that port: without it, installing the plugin fails on
+# an unresolvable dependency. Mirror FreeBSD's own build (same name, version and
+# origin) by pointing DAEMON_PKG at a downloaded .pkg; see the README.
+#
 # Environment overrides:
 #   PLUGINS_SRC  opnsense/plugins checkout      (default /usr/plugins)
 #   STAGE        staging directory              (default /tmp/surfhost-repo)
 #   PAGES_CLONE  gh-pages clone used for push   (default /tmp/surfhost-pages)
 #   REPO_URL     git remote for the push        (default the GitHub HTTPS URL)
+#   DAEMON_PKG   openvpn-auth-oauth2 .pkg to mirror alongside the plugin
 
 set -eu
 
@@ -59,6 +65,24 @@ echo "==> generating repository metadata in ${STAGE}/${ABI}"
 rm -rf "${STAGE:?}/${ABI}"
 mkdir -p "${STAGE}/${ABI}"
 cp "${PKGFILE}" "${STAGE}/${ABI}/"
+
+DAEMON_PKG=${DAEMON_PKG:-}
+if [ -n "${DAEMON_PKG}" ]; then
+    [ -f "${DAEMON_PKG}" ] || { echo "!!! DAEMON_PKG ${DAEMON_PKG} not found" >&2; exit 1; }
+    cp "${DAEMON_PKG}" "${STAGE}/${ABI}/"
+    echo "    mirroring $(basename "${DAEMON_PKG}")"
+elif ! pkg info -e openvpn-auth-oauth2 2>/dev/null; then
+    cat >&2 <<'EOF'
+!!! the openvpn-auth-oauth2 daemon is not installed and DAEMON_PKG is unset.
+    The plugin depends on it at build time and at install time, and OPNsense
+    does not ship it. See "Building and publishing a release" in the README.
+EOF
+    exit 1
+else
+    echo "    note: daemon installed locally but not mirrored (set DAEMON_PKG"
+    echo "          so that other firewalls can resolve the dependency)"
+fi
+
 pkg repo "${STAGE}/${ABI}"
 
 if [ "${PUBLISH}" != "1" ]; then

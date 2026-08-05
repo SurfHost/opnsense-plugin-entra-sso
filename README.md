@@ -378,7 +378,7 @@ configctl openvpnauthoauth2 details
 
 | Symptom | Cause and fix |
 |---|---|
-| `pkg update` gives a 404 | Your ABI directory does not exist yet in the repository. Check with `pkg config abi`; the repository currently serves `FreeBSD:14:amd64`. |
+| `pkg update` gives a 404 | Your ABI directory does not exist yet in the repository. Compare `pkg config abi` (OPNsense 26.7 reports `FreeBSD:15:amd64`) with the directories published in the repository. |
 | Plugin menu entry missing after install | `service configd restart && service php_fpm restart` |
 | Status: **management-client-auth missing** | Someone re-saved the OpenVPN instance in the GUI, which silently drops the directive. Press **Save** on the SSO page to restore it. |
 | Status: **daemon not running** | Usually a bad tenant/client ID or an unreachable Entra endpoint. Check the log for the actual error. |
@@ -430,22 +430,62 @@ configctl openvpnauthoauth2 details
 grep management-client-auth /var/etc/openvpn/instance-*.conf
 ```
 
-### Building and publishing a release
+### The daemon dependency
 
-Run on an OPNsense box, from a checkout of this repository:
+OPNsense does not build the `openvpn-auth-oauth2` port, so `pkg search
+openvpn-auth-oauth2` on a firewall returns nothing and the plugin's dependency
+cannot be resolved from OPNsense's own repository. FreeBSD does build it, so the
+repository **mirrors FreeBSD's package** under the same name, version and
+origin. Do not add `pkg.freebsd.org` to a firewall to get it: OPNsense disables
+the FreeBSD repositories deliberately, and mixing them replaces OPNsense's
+patched builds of `openvpn`, `unbound` and others.
+
+Fetch the current build once, on the box you build on:
 
 ```sh
-PUBLISH=1 ./tools/publish-repo.sh
+fetch -o /tmp/openvpn-auth-oauth2.pkg https://pkg.freebsd.org/$(pkg config abi)/latest/All/openvpn-auth-oauth2-1.28.0_1.pkg
 ```
 
-That fetches the opnsense/plugins tree if needed, builds the package, generates
-the `pkg` metadata, and pushes the result to the `gh-pages` branch, which
-GitHub Pages serves as the package repository. Without `PUBLISH=1` it stages the
-files and prints the manual publish commands.
+If the filename has moved on, list what the branch currently has:
+
+```sh
+fetch -qo - https://pkg.freebsd.org/$(pkg config abi)/latest/packagesite.pkg | tar -xO -f - packagesite.yaml | grep -o '"name":"openvpn-auth-oauth2"[^}]*'
+```
+
+Install it before building, because the plugin framework resolves
+`PLUGIN_DEPENDS` against the build host's package database and freezes the
+resolved version into the plugin manifest:
+
+```sh
+pkg add /tmp/openvpn-auth-oauth2.pkg
+```
+
+Consequence: whenever you mirror a newer daemon, rebuild the plugin against it.
+
+### Building and publishing a release
+
+Run on an OPNsense box of the **same major release** you are publishing for
+(the build host's ABI is stamped into the package), from a checkout of this
+repository:
+
+```sh
+DAEMON_PKG=/tmp/openvpn-auth-oauth2.pkg PUBLISH=1 ./tools/publish-repo.sh
+```
+
+That fetches the opnsense/plugins tree if needed, builds the plugin, copies the
+daemon package alongside it, generates the `pkg` metadata for the current ABI,
+and pushes the result to the `gh-pages` branch that GitHub Pages serves. Without
+`PUBLISH=1` it stages the files and prints the manual publish commands.
 
 Bump `PLUGIN_VERSION` in
 [`os-openvpn-auth-oauth2/Makefile`](os-openvpn-auth-oauth2/Makefile) before
 building a new release, and tag the commit.
+
+> The published tree is keyed by ABI (`FreeBSD:15:amd64` for OPNsense 26.7), and
+> `surfhost.conf` uses `${ABI}`, so firewalls pick the right directory
+> automatically. An OPNsense release that moves to a new FreeBSD major needs a
+> fresh build published under the new ABI. Never check out the `gh-pages` branch
+> on Windows: those directory names contain colons, which NTFS forbids.
 
 ---
 
