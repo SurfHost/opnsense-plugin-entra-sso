@@ -344,22 +344,42 @@ If anything is off, see [Troubleshooting](#troubleshooting).
 
 ## Step 5: Connect a client
 
-### 5.1 Export a client profile
+### 5.1 Create a client certificate
 
-Go to **VPN > OpenVPN > Client Export**, pick your instance, choose a client
-certificate for the user, and download the `.ovpn` profile.
+Each user needs their own client certificate, because the instance is set to
+**Verify Client Certificate: Required** and the certificate is what
+authenticates the VPN client itself. Entra ID then decides *who the person is*
+on top of that.
 
-Open the downloaded file in a text editor and make sure it contains:
+Go to **System > Trust > Certificates**, click **Add**, and choose:
+
+| Field | Value |
+|---|---|
+| **Method** | `Create an internal certificate` |
+| **Certificate authority** | the CA that issued your server certificate |
+| **Type** | `Client Certificate` |
+| **Common Name** | the user, e.g. `hans` |
+
+### 5.2 Export the profile
+
+Go to **VPN > OpenVPN > Client Export** and select your instance. The list
+underneath shows one row per client certificate. Download the `.ovpn` from the
+row for the certificate you just created, using export type **File Only**.
+
+Open the file in a text editor and confirm it contains a `<cert>` block and a
+`<key>` block. Those are the client's authentication method, and without them
+OpenVPN refuses to start with:
 
 ```
-auth-retry interact
+Options error: No client-side authentication method is specified.
 ```
 
-Add that line if it is missing. It tells the client to wait for the browser
-login instead of failing immediately. The profile must **not** contain
-`auth-user-pass`.
+The profile does **not** need `auth-user-pass`: the certificate satisfies
+OpenVPN's client-authentication requirement, and the identity check happens in
+the browser. If your client disconnects instead of waiting for the browser, add
+`auth-retry interact`.
 
-### 5.2 First login
+### 5.3 First login
 
 1. Import the profile into OpenVPN GUI, Tunnelblick or Viscosity.
 2. Connect.
@@ -392,7 +412,8 @@ configctl openvpnauthoauth2 details
 | Status: **management-client-auth missing** | Someone re-saved the OpenVPN instance in the GUI, which silently drops the directive. Press **Save** on the SSO page to restore it. |
 | Status: **daemon not running** | Usually a bad tenant/client ID or an unreachable Entra endpoint. Check the log for the actual error. |
 | Status: **callback listener unreachable** | The daemon failed to bind, often a certificate problem or a port already in use. Check the log and `sockstat -l \| grep 9443`. **Do not use port 9000**: OPNsense's php-fpm listens on `127.0.0.1:9000`, so binding the wildcard address there fails. |
-| Browser never opens on connect | The client does not support browser authentication, or `auth-retry interact` is missing from the profile. |
+| `Options error: No client-side authentication method is specified` | The exported profile has no `<cert>`/`<key>` block. Export it from the row of a **Client Certificate** in Client Export, not from a profile without one. |
+| Browser never opens on connect | The client does not support browser authentication, or the profile disconnects too early (try adding `auth-retry interact`). |
 | Browser opens but cannot load the page | DNS for your base URL does not point at the firewall, or the WAN rule for TCP 9443 is missing. |
 | Certificate warning in the browser | The listener certificate is self-signed or does not match the hostname in the base URL. |
 | `AADSTS7000215` (invalid client secret) | Wrong secret, or the *Secret ID* was copied instead of the *Value*. |
