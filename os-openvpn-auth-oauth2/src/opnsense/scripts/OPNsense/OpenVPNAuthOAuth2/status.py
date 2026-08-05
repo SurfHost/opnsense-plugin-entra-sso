@@ -17,6 +17,7 @@ import stat
 import subprocess
 import sys
 import xml.etree.ElementTree as ElementTree
+from urllib.parse import urlsplit
 
 SUPERVISOR_CONF = '/usr/local/etc/openvpn-auth-oauth2/supervisor.conf'
 # the CHILD pidfile written by daemon(8) -p: it holds supervisor.py's pid.
@@ -104,6 +105,95 @@ def listener_up(address, port, tls_enabled=False):
         return False
 
 
+def port_listeners(port):
+    """Everything listening on this TCP port, from sockstat. A probe against
+    127.0.0.1 cannot distinguish 'bound to every interface' from 'bound to
+    loopback only', and cannot see that a different process owns the port."""
+    entries = []
+    if not str(port).isdigit():
+        return entries
+    try:
+        result = subprocess.run(
+            ['sockstat', '-l', '-P', 'tcp'], stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL, timeout=10, check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return entries
+    for line in result.stdout.decode('utf-8', 'replace').splitlines():
+        fields = line.split()
+        if len(fields) < 6 or not fields[4].startswith('tcp'):
+            continue
+        address = fields[5]
+        if address.rsplit(':', 1)[-1] == str(port):
+            entries.append({'command': fields[1], 'address': address})
+    return entries
+
+
+def local_addresses():
+    """Every IP configured on this firewall, so the base URL can be compared
+    against them. Empty on failure, which callers treat as 'unknown'."""
+    addresses = set()
+    try:
+        result = subprocess.run(
+            ['ifconfig', '-a'], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            timeout=10, check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return addresses
+    for line in result.stdout.decode('utf-8', 'replace').splitlines():
+        fields = line.split()
+        if len(fields) >= 2 and fields[0] in ('inet', 'inet6'):
+            addresses.add(fields[1].split('%')[0])
+    return addresses
+
+
+def base_url_status(base_url, listen_port, tls_enabled):
+    """Check the public base URL against the listener it must point at. This
+    cannot prove reachability from the internet, only that the URL is
+    self-consistent and resolves to this firewall."""
+    status = {'url': base_url, 'problems': [], 'resolves': []}
+    if not base_url:
+        status['problems'].append('No public base URL configured.')
+        return status
+
+    parts = urlsplit(base_url)
+    host = parts.hostname
+    scheme = parts.scheme
+    try:
+        port = parts.port or (443 if scheme == 'https' else 80)
+    except ValueError:
+        port = None
+        status['problems'].append('The base URL contains an invalid port.')
+    status['host'] = host or ''
+    status['port'] = port
+
+    if scheme == 'https' and not tls_enabled:
+        status['problems'].append('The base URL uses https but TLS is disabled on the listener.')
+    elif scheme == 'http' and tls_enabled:
+        status['problems'].append('The base URL uses http but TLS is enabled on the listener.')
+
+    if port is not None and str(port) != str(listen_port):
+        status['problems'].append(
+            'The base URL port (%s) does not match the listen port (%s); '
+            'the browser would be sent to the wrong port.' % (port, listen_port)
+        )
+
+    if host:
+        try:
+            status['resolves'] = sorted({info[4][0] for info in socket.getaddrinfo(host, None)})
+        except (socket.gaierror, UnicodeError, ValueError):
+            status['problems'].append('The base URL hostname does not resolve from this firewall.')
+        else:
+            local = local_addresses()
+            if local and not set(status['resolves']) & local:
+                status['problems'].append(
+                    'The hostname resolves to %s, which is not an address on this firewall. '
+                    'That is expected behind NAT, but check it points at this WAN.'
+                    % ', '.join(status['resolves'])
+                )
+    return status
+
+
 def client_auth_flag(instance_uuid, config_xml=CONFIG_XML):
     """Report whether the selected OpenVPN instance carries the
     'management-client-auth' directive. Core's various_flags field is a
@@ -149,11 +239,27 @@ def main():
             conf.get('listen_port', '0'),
             conf.get('tls_enabled') == '1',
         )
+        result['listen'] = '%s:%s' % (
+            conf.get('listen_address', '') or '0.0.0.0', conf.get('listen_port', ''))
+        listeners = port_listeners(conf.get('listen_port', ''))
+        result['listen_binds'] = [e['address'] for e in listeners]
+        foreign = sorted({e['command'] for e in listeners
+                          if not DAEMON_NAME.startswith(e['command'].rstrip('-'))})
+        result['listen_conflict'] = foreign
         result['client_auth_flag'] = client_auth_flag(conf.get('instance_uuid', ''))
+        result['base_url'] = base_url_status(
+            conf.get('base_url', ''),
+            conf.get('listen_port', ''),
+            conf.get('tls_enabled') == '1',
+        )
     else:
         result['swap'] = 'disabled'
         result['listener'] = False
+        result['listen'] = ''
+        result['listen_binds'] = []
+        result['listen_conflict'] = []
         result['client_auth_flag'] = None
+        result['base_url'] = {'url': '', 'problems': [], 'resolves': []}
 
     print(json.dumps(result))
     return 0

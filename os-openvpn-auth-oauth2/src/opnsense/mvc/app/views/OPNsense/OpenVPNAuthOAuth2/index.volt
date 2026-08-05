@@ -45,10 +45,52 @@
                     }));
                 $("#status_listener").html(
                     statusLabel(!enabled ? 'off' : (data['listener'] ? 'good' : 'bad'), {
-                        'good': "{{ lang._('reachable') }}",
-                        'bad': "{{ lang._('unreachable') }}",
+                        'good': "{{ lang._('listening') }}",
+                        'bad': "{{ lang._('not listening') }}",
                         'off': "{{ lang._('disabled') }}"
                     }));
+                $("#status_listen_addr").text(enabled && data['listen'] ? data['listen'] : '');
+
+                var binds = data['listen_binds'] || [];
+                var conflict = data['listen_conflict'] || [];
+                if (!enabled) {
+                    $("#status_listen_binds").text('');
+                } else if (binds.length === 0) {
+                    $("#status_listen_binds").text("{{ lang._('nothing is listening on this port') }}");
+                } else {
+                    $("#status_listen_binds").text(
+                        "{{ lang._('bound to') }} " + binds.join(', '));
+                }
+                if (enabled && conflict.length > 0) {
+                    $("#port_conflict_warning")
+                        .text("{{ lang._('This port is also held by another process:') }} " +
+                              conflict.join(', ') +
+                              "{{ lang._(' . Pick a free port; OPNsense uses 9000 for php-fpm.') }}")
+                        .show();
+                } else {
+                    $("#port_conflict_warning").hide();
+                }
+
+                var burl = data['base_url'] || {};
+                var problems = burl['problems'] || [];
+                $("#status_baseurl").html(statusLabel(
+                    !enabled ? 'off' : (problems.length === 0 ? 'good' : 'bad'), {
+                        'good': "{{ lang._('consistent') }}",
+                        'bad': "{{ lang._('check settings') }}",
+                        'off': "{{ lang._('disabled') }}"
+                    }));
+                if (enabled && problems.length > 0) {
+                    var list = $("<ul/>");
+                    $.each(problems, function (i, problem) {
+                        list.append($("<li/>").text(problem));
+                    });
+                    $("#baseurl_warning").empty()
+                        .append($("<b/>").text("{{ lang._('Callback URL problems') }}"))
+                        .append(list)
+                        .show();
+                } else {
+                    $("#baseurl_warning").hide();
+                }
                 var flag = data['client_auth_flag'];
                 $("#status_client_auth").html(
                     statusLabel(flag === true ? 'good' : (flag === false ? 'bad' : 'off'), {
@@ -99,8 +141,16 @@
                     <td id="status_swap"></td>
                 </tr>
                 <tr>
-                    <td>{{ lang._('Callback listener') }}</td>
+                    <td>
+                        {{ lang._('Callback listener') }}
+                        <br/><small class="text-muted" id="status_listen_addr"></small>
+                        <br/><small class="text-muted" id="status_listen_binds"></small>
+                    </td>
                     <td id="status_listener"></td>
+                </tr>
+                <tr>
+                    <td>{{ lang._('Public base URL') }}</td>
+                    <td id="status_baseurl"></td>
                 </tr>
                 <tr>
                     <td>{{ lang._("OpenVPN 'management-client-auth'") }}</td>
@@ -108,6 +158,11 @@
                 </tr>
             </tbody>
         </table>
+        <div id="baseurl_warning" class="alert alert-warning" style="display:none; max-width: 60em;"></div>
+        <div id="port_conflict_warning" class="alert alert-danger" style="display:none; max-width: 60em;"></div>
+        <div class="alert alert-info" style="max-width: 60em;">
+            {{ lang._("The listener row only proves the service is listening on this firewall. Reachability from the internet additionally needs a WAN firewall rule for the listen port, and public DNS pointing at this firewall. Test it from outside your own network: connecting to the public address from inside requires NAT reflection. The daemon serves only /oauth2/... paths, so a 404 on the root URL means it is working.") }}
+        </div>
         <div id="client_auth_warning" class="alert alert-warning" style="display:none; max-width: 60em;">
             {{ lang._("The selected OpenVPN instance does not carry the 'management-client-auth' directive, so OpenVPN never asks this service to authorize client connects and SSO stays silent. The instance's Options field does not offer this directive and drops it whenever that instance is saved. Press Save below to add it back and restart the instance (this drops its active tunnels), or disable 'Repair OpenVPN instance flag' under Advanced to manage the directive yourself.") }}
         </div>
