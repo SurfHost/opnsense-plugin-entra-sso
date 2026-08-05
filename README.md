@@ -430,6 +430,10 @@ configctl openvpnauthoauth2 details
 grep management-client-auth /var/etc/openvpn/instance-*.conf
 ```
 
+> **Shell note:** root's login shell on OPNsense is tcsh, which does not
+> understand `$(...)` command substitution or `VAR=value command` prefixes.
+> Run `sh` once before pasting the commands in this section.
+
 ### The daemon dependency
 
 OPNsense does not build the `openvpn-auth-oauth2` port, so `pkg search
