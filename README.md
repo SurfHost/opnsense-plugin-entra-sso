@@ -148,8 +148,17 @@ Under **System > Trust** you need:
 2. **Certificates**: a server certificate issued by that CA, with **Type:
    Server Certificate**.
 
-These secure the VPN tunnel itself. The certificate for the browser callback is
-a separate one, see [4.1](#41-certificate-for-the-callback-listener).
+Give the server certificate a **Common Name** (e.g. `vpn.example.com`), or the
+export option *Validate server subject* has nothing to check against.
+
+> **Two certificates, two jobs.** The instance certificate secures the VPN
+> tunnel, and OpenVPN validates clients against the CA that issued it, so it
+> must come from your **internal CA**, the same one that issues client
+> certificates. Do not select a Let's Encrypt certificate here: the instance's
+> CA would become the public CA, and your client certificates would no longer be
+> accepted. The publicly trusted certificate belongs on the browser-facing
+> callback listener instead, see
+> [4.1](#41-certificate-for-the-callback-listener).
 
 ### 2.2 Create the instance
 
