@@ -1,4 +1,4 @@
-# Microsoft Entra ID SSO for OpenVPN on OPNsense — Investigation
+# Microsoft Entra ID SSO for OpenVPN on OPNsense: Investigation
 
 *Status: investigated August 2026, targeting OPNsense 26.7 "Xenial Xenops".*
 
@@ -9,7 +9,7 @@ on OPNsense is achievable **without patching OPNsense core** by packaging
 [jkroepke/openvpn-auth-oauth2](https://github.com/jkroepke/openvpn-auth-oauth2)
 as an OPNsense plugin (`os-openvpn-auth-oauth2`). The daemon implements OpenVPN's
 deferred "webauth" authentication over the management interface and validates the
-user against any OIDC provider — Entra ID is a first-class, documented provider.
+user against any OIDC provider; Entra ID is a first-class, documented provider.
 
 The one genuinely hard problem is that OPNsense's new OpenVPN *Instances* already
 occupy the OpenVPN management socket for GUI status. The daemon's built-in
@@ -23,9 +23,9 @@ The scaffold for the plugin lives in
 ## Background
 
 - OPNsense replaced its legacy OpenVPN server pages with the MVC/API-based
-  **OpenVPN → Instances** feature. Legacy OpenVPN was moved out of core into a
+  **OpenVPN > Instances** feature. Legacy OpenVPN was moved out of core into a
   deprecation plugin in 25.7; new deployments must use Instances.
-- OPNsense's authentication framework (System → Access → Servers) offers Local,
+- OPNsense's authentication framework (System > Access > Servers) offers Local,
   LDAP, RADIUS, TOTP and combinations. None of these can drive a browser-based
   OIDC flow, so none can deliver real Entra ID SSO with Conditional Access/MFA.
 - OpenVPN 2.6 added the missing protocol piece: **deferred client authentication
@@ -64,13 +64,13 @@ Entra ID and the result is pushed to the server as `client-auth`/`client-deny`.
 | **openvpn-auth-oauth2 (OIDC webauth)** | Yes | Plugin packaging | **Chosen** |
 | LDAPS via Entra Domain Services | No (password auth) | Azure infra (~€100+/mo) | Rejected |
 | RADIUS bridge (NPS + Entra MFA ext., or cloud RADIUS) | Partial (push MFA, no browser/CA) | Windows/3rd-party infra | Rejected |
-| ROPC (password grant) auth backend | No — blocked by MFA/CA, deprecated by Microsoft | Medium | Rejected |
+| ROPC (password grant) auth backend | No, blocked by MFA/CA, deprecated by Microsoft | Medium | Rejected |
 | Build an SSO daemon from scratch | Yes, eventually | Months + permanent security maintenance | Rejected |
 
 Notes on the rejected paths:
 
 - **LDAPS / Entra Domain Services** syncs password hashes into a managed domain
-  and authenticates by password — no Conditional Access evaluation at VPN login,
+  and authenticates by password, no Conditional Access evaluation at VPN login,
   significant recurring Azure cost, and password-based auth is exactly what SSO
   should remove.
 - **RADIUS bridges** need extra always-on infrastructure and only bolt push-MFA
@@ -86,7 +86,7 @@ Notes on the rejected paths:
 
 ## Integration architecture on OPNsense
 
-### Constraint 1 — the shared-library mode is Linux-only
+### Constraint 1: the shared-library mode is Linux-only
 
 openvpn-auth-oauth2 offers two integration modes:
 
@@ -94,12 +94,12 @@ openvpn-auth-oauth2 offers two integration modes:
    socket.
 2. **OpenVPN plugin mode**: a Go `c-shared` shim (`.so`) loaded via a `plugin`
    directive. The upstream wiki states this **runs only under Linux**, and the
-   FreeBSD port ships only the daemon binary + rc script + sample YAML — no
+   FreeBSD port ships only the daemon binary + rc script + sample YAML, no
    shared library. Plugin mode is therefore not available on OPNsense/FreeBSD.
 
-→ We must use management-interface mode.
+So we must use management-interface mode.
 
-### Constraint 2 — OPNsense owns the management socket
+### Constraint 2: OPNsense owns the management socket
 
 `opnsense/core` generates each instance config in
 `src/opnsense/mvc/app/models/OPNsense/OpenVPN/OpenVPN.php`
@@ -114,7 +114,7 @@ accepts exactly one `management` directive and one connected management client,
 and the model offers **no hook to inject or override directives** (the free-form
 `various_flags` field only accepts bare, valueless options).
 
-### Resolution — pass-through proxy + socket swap
+### Resolution: pass-through proxy + socket swap
 
 openvpn-auth-oauth2 ships a **management-interface pass-through**
 (`openvpn.pass-through.enabled/address/password/socket-group/socket-mode`): it
@@ -127,7 +127,7 @@ Because core hardcodes the socket path, the plugin's supervisor performs a
 **socket swap** per SSO-enabled instance:
 
 1. OpenVPN starts and binds `S = /var/etc/openvpn/server{vpnid}.sock`.
-2. Supervisor renames `S` → `/var/etc/openvpn-auth-oauth2/server{vpnid}.sock`.
+2. Supervisor renames `S` to `/var/etc/openvpn-auth-oauth2/server{vpnid}.sock`.
    A rename preserves the bound unix-socket inode; OpenVPN keeps listening.
    (The swap directory deliberately sits next to `/var/etc/openvpn` so the
    rename can never cross a filesystem boundary, e.g. a tmpfs `/var/run`.)
@@ -138,7 +138,7 @@ Because core hardcodes the socket path, the plugin's supervisor performs a
    listener, transparently.
 5. Supervisor watches the inode of `S` (~5 s poll). When OPNsense restarts the
    instance, OpenVPN re-binds `S` (clobbering the pass-through socket file); the
-   supervisor detects the new inode and re-runs steps 2–3. Self-healing, no core
+   supervisor detects the new inode and re-runs steps 2-3. Self-healing, no core
    patch, no core file overwritten.
 
 **Fallback ("exclusive mode"):** if the swap misbehaves on some release, a model
@@ -154,13 +154,13 @@ status/kill for that one instance (documented limitation).
   **Options** in the instance dialog). Required so OpenVPN asks the management
   client to decide `>CLIENT:CONNECT`. The plugin adds it automatically and
   reports it in the status panel.
-- Leave **Authentication** (authmode) empty — otherwise `ovpn_event.py --defer`
+- Leave **Authentication** (authmode) empty, otherwise `ovpn_event.py --defer`
   *and* the SSO daemon must both approve every login (usable as a deliberate
   2-source auth, but not the default).
 - Use the native **auth token lifetime / renewal** fields (`auth-gen-token`) and
   set renegotiation (`reneg-sec`) to `0`, per upstream SSO guidance, so users
   aren't re-prompted mid-session.
-- Server runs OpenVPN ≥ 2.6.2 — satisfied by OPNsense 26.7.
+- Server runs OpenVPN ≥ 2.6.2, satisfied by OPNsense 26.7.
 
 ### Blocker: `management-client-auth` is not settable in the stock UI
 
@@ -193,7 +193,7 @@ Consequences for this plugin:
   panel reports it as a warning instead;
 - `OpenVPNAuthOAuth2::ensureClientAuthFlag()` performs the repair, and
   `ServiceController` restarts the affected instance when (and only when) it
-  actually added the directive — a restart drops that instance's tunnels;
+  actually added the directive; a restart drops that instance's tunnels;
 - the repair writes into core's configuration section, which is why it is a
   bridge and not the destination. Two caveats: the value stays invisible to
   the OpenVPN instance form (which will drop it again on the next save there,
@@ -205,22 +205,22 @@ Consequences for this plugin:
 
 ## Entra ID app registration (runbook)
 
-1. **Entra admin center → App registrations → New registration**
+1. **Entra admin center > App registrations > New registration**
    - Name e.g. `OPNsense OpenVPN SSO`; single tenant.
    - Platform **Web**; redirect URI: `https://<baseUrl>/oauth2/callback`
      (e.g. `https://vpn.example.nl:9000/oauth2/callback`).
-2. **Certificates & secrets** → new client secret (confidential client).
-   Record the *value* immediately; set a calendar reminder for expiry —
+2. **Certificates & secrets** > new client secret (confidential client).
+   Record the *value* immediately; set a calendar reminder for expiry,
    Entra secrets max out at 24 months and the VPN dies silently when it lapses.
 3. **API permissions**: `openid`, `profile`, `offline_access` (delegated;
    admin consent recommended).
-4. **Token configuration → Add groups claim**: security groups, emit as group
+4. **Token configuration > Add groups claim**: security groups, emit as group
    **object IDs** in the ID token. The plugin's *allowed groups* field matches
    these IDs (`oauth2.validate.groups`).
    - ⚠️ **Groups overage**: if a user is in >200 groups, Entra omits the claim
      and group validation fails closed. Mitigate by "Groups assigned to the
      application" in the claim config and assigning the app, or use App Roles.
-5. Optional hardening: **Enterprise application → Assignment required**, plus a
+5. Optional hardening: **Enterprise application > Assignment required**, plus a
    **Conditional Access** policy scoped to this app (require MFA / compliant
    device / named locations).
 6. Issuer used by the plugin:
@@ -229,7 +229,7 @@ Consequences for this plugin:
 ## Networking and TLS exposure
 
 The callback listener must be reachable *by the user's browser* (not by the VPN
-client — the browser flow happens outside the tunnel):
+client, since the browser flow happens outside the tunnel):
 
 | Option | Notes |
 |---|---|
@@ -244,7 +244,7 @@ Requirements:
 - Firewall: WAN rule allowing TCP/9000 to the firewall itself (or restrict to
   expected user networks). The listener speaks only OAuth2 endpoints and is
   protected by state cookies (`http.secret`), but it is still an exposed
-  service — keep the port filtered where possible.
+  service, keep the port filtered where possible.
 - On HA/CARP pairs the daemon holds in-memory state; run it on both nodes,
   expect re-auth after failover.
 
@@ -266,13 +266,13 @@ Client profile: certificate-based profile exported from OPNsense, plus
 
 1. **The socket swap is a workaround.** It is self-healing and touches no core
    files, but it depends on FreeBSD unix-socket rename semantics and on the GUI
-   reconnecting per query (it does — status polls open a fresh connection).
+   reconnecting per query (it does, status polls open a fresh connection).
    Roadmap item: upstream a core option for a configurable management socket
    path per instance, which would delete the hack.
 2. **One SSO instance in v1.** One daemon = one HTTP listener + one management
-   connection. Multi-instance needs per-instance daemon configs and ports —
+   connection. Multi-instance needs per-instance daemon configs and ports,
    the model is shaped to allow that later.
-3. **`management-client-auth` cannot be set through the stock UI at all** —
+3. **`management-client-auth` cannot be set through the stock UI at all**,
    core's `various_flags` is a closed OptionField
    ([details](#blocker-management-client-auth-is-not-settable-in-the-stock-ui)).
    A core PR is the prerequisite for a supportable release; a `config.xml`
@@ -286,7 +286,7 @@ Client profile: certificate-based profile exported from OPNsense, plus
 - [ ] `security/openvpn-auth-oauth2` is present/buildable in the **opnsense/ports**
       fork (it is in FreeBSD ports; if absent, step 0 is a sync PR).
 - [x] The `various_flags` validation mask in the core OpenVPN model accepts
-      `management-client-auth`. **Resolved: it does NOT** — closed OptionField,
+      `management-client-auth`. **Resolved: it does NOT**, closed OptionField,
       see [the blocker section](#blocker-management-client-auth-is-not-settable-in-the-stock-ui).
 - [ ] Unix-socket rename swap on FreeBSD 14 behaves as described (10-line test
       on a lab box) and OpenVPN's behaviour on management re-bind.
@@ -307,11 +307,11 @@ Client profile: certificate-based profile exported from OPNsense, plus
    for `management-client-auth`.
 2. Upstream contributions, in order of leverage:
    - opnsense/core: **add `management-client-auth` to the instance
-     `various_flags` OptionValues** → unblocks supported use (prerequisite for
+     `various_flags` OptionValues** > unblocks supported use (prerequisite for
      a release; one-line model change);
    - opnsense/core: configurable management socket path (or post-start hook)
-     for instances → removes the socket swap;
-   - FreeBSD build of the `.so` shim (Go c-shared on freebsd/amd64) → removes
+     for instances > removes the socket swap;
+   - FreeBSD build of the `.so` shim (Go c-shared on freebsd/amd64) > removes
      the management-mode complexity entirely;
    - the plugin itself to opnsense/plugins once stable.
 

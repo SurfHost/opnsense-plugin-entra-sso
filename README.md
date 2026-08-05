@@ -18,11 +18,11 @@ silent while the auth token is valid.
 ## Contents
 
 1. [What you need](#what-you-need)
-2. [Step 1 — Register the application in Entra ID](#step-1--register-the-application-in-entra-id)
-3. [Step 2 — Prepare the OpenVPN server](#step-2--prepare-the-openvpn-server)
-4. [Step 3 — Install the plugin](#step-3--install-the-plugin)
-5. [Step 4 — Configure the plugin](#step-4--configure-the-plugin)
-6. [Step 5 — Connect a client](#step-5--connect-a-client)
+2. [Step 1: Register the application in Entra ID](#step-1-register-the-application-in-entra-id)
+3. [Step 2: Prepare the OpenVPN server](#step-2-prepare-the-openvpn-server)
+4. [Step 3: Install the plugin](#step-3-install-the-plugin)
+5. [Step 4: Configure the plugin](#step-4-configure-the-plugin)
+6. [Step 5: Connect a client](#step-5-connect-a-client)
 7. [Troubleshooting](#troubleshooting)
 8. [How it works](#how-it-works)
 9. [Maintainer notes](#maintainer-notes)
@@ -48,7 +48,7 @@ Two ports must be reachable from the internet: the OpenVPN port itself
 
 ---
 
-## Step 1 — Register the application in Entra ID
+## Step 1: Register the application in Entra ID
 
 You are creating an application that represents your VPN, so Entra ID knows who
 is asking when a user signs in.
@@ -134,7 +134,7 @@ This is the main reason to use SSO rather than passwords, so it is worth doing.
 
 ---
 
-## Step 2 — Prepare the OpenVPN server
+## Step 2: Prepare the OpenVPN server
 
 **Already have a working OpenVPN server instance?** Skip to
 [2.4](#24-checklist-for-an-existing-instance) and just check three settings.
@@ -212,7 +212,7 @@ Nothing else changes; existing clients keep working until you switch them over.
 
 ---
 
-## Step 3 — Install the plugin
+## Step 3: Install the plugin
 
 ### 3.1 Add the SurfHost repository
 
@@ -255,7 +255,7 @@ pkg update
 
 ---
 
-## Step 4 — Configure the plugin
+## Step 4: Configure the plugin
 
 ### 4.1 Certificate for the callback listener
 
@@ -280,7 +280,7 @@ Go to **VPN > OpenVPN > SSO (OAuth2 / Entra ID)**:
 | **Client ID** | Application (client) ID from step 1 |
 | **Client secret** | the secret *value* from step 1 |
 | **Allowed groups** | leave empty if you used *Assignment required* in 1.4 |
-| **Public base URL** | `https://vpn.example.com:9000` — must match the redirect URI in Entra exactly |
+| **Public base URL** | `https://vpn.example.com:9000`, must match the redirect URI in Entra exactly |
 | **Listen port** | `9000` |
 | **Encryption secret** | 16, 24 or 32 random letters and digits |
 | **Enable TLS** | ticked |
@@ -333,7 +333,7 @@ If anything is off, see [Troubleshooting](#troubleshooting).
 
 ---
 
-## Step 5 — Connect a client
+## Step 5: Connect a client
 
 ### 5.1 Export a client profile
 
