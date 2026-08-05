@@ -150,9 +150,10 @@ status/kill for that one instance (documented limitation).
 > ⚠️ **Correction (verified Aug 2026):** the first of these is *not* achievable
 > in the stock UI. See [the blocker below](#blocker-management-client-auth-is-not-settable-in-the-stock-ui).
 
-- Add `management-client-auth` to the instance's **various flags**. Required so
-  OpenVPN asks the management client to decide `>CLIENT:CONNECT`. The plugin
-  reports it as a warning in the status panel when missing.
+- Add `management-client-auth` to the instance's `various_flags` (labelled
+  **Options** in the instance dialog). Required so OpenVPN asks the management
+  client to decide `>CLIENT:CONNECT`. The plugin adds it automatically and
+  reports it in the status panel.
 - Leave **Authentication** (authmode) empty — otherwise `ovpn_event.py --defer`
   *and* the SSO daemon must both approve every login (usable as a deliberate
   2-source auth, but not the default).

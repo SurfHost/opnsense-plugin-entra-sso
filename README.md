@@ -1,97 +1,456 @@
-# opnsense-plugin-entra-sso
+# OpenVPN single sign-on with Microsoft Entra ID for OPNsense
 
-Microsoft Entra ID single sign-on for OpenVPN on OPNsense, built around
-[openvpn-auth-oauth2](https://github.com/jkroepke/openvpn-auth-oauth2) and
-OPNsense's new OpenVPN **Instances**.
+Sign in to your OpenVPN connection with your Microsoft work account, in a real
+browser window, with Conditional Access and MFA applied. No passwords in the
+VPN client, no RADIUS server, no Azure infrastructure.
 
-> **Status: code complete, untested.** The supervisor (socket swap, TLS export
-> from the trust store, crash backoff) and the UI (settings form, live status
-> panel) are finished and the daemon config keys are verified against the
-> upstream wiki (v1.28). What remains is the lab test loop below.
->
-> ⚠️ **Note:** OPNsense core does not let you set the required
-> `management-client-auth` directive on an OpenVPN instance (its *Various
-> Flags* field is a closed list), and drops it whenever that instance is saved.
-> The plugin repairs this itself on save/apply and restarts the affected
-> instance; a one-line core PR remains the proper fix. See
-> [the investigation](docs/INVESTIGATION.md#blocker-management-client-auth-is-not-settable-in-the-stock-ui).
+This is an OPNsense plugin (`os-openvpn-auth-oauth2`) that packages
+[openvpn-auth-oauth2](https://github.com/jkroepke/openvpn-auth-oauth2) and wires
+it into OPNsense's **OpenVPN Instances**.
 
-## What's here
+**What a user sees:** they connect with their normal OpenVPN client, a browser
+tab opens at the Microsoft sign-in page, they authenticate (MFA, Conditional
+Access, whatever your tenant requires), and the tunnel comes up. Reconnects are
+silent while the auth token is valid.
 
-| Path | Contents |
+---
+
+## Contents
+
+1. [What you need](#what-you-need)
+2. [Step 1 — Register the application in Entra ID](#step-1--register-the-application-in-entra-id)
+3. [Step 2 — Prepare the OpenVPN server](#step-2--prepare-the-openvpn-server)
+4. [Step 3 — Install the plugin](#step-3--install-the-plugin)
+5. [Step 4 — Configure the plugin](#step-4--configure-the-plugin)
+6. [Step 5 — Connect a client](#step-5--connect-a-client)
+7. [Troubleshooting](#troubleshooting)
+8. [How it works](#how-it-works)
+9. [Maintainer notes](#maintainer-notes)
+
+---
+
+## What you need
+
+| | |
 |---|---|
-| [`docs/INVESTIGATION.md`](docs/INVESTIGATION.md) | Full investigation: options considered, architecture decision, Entra ID runbook, client matrix, limitations, roadmap |
-| [`os-openvpn-auth-oauth2/`](os-openvpn-auth-oauth2/) | OPNsense plugin scaffold (opnsense/plugins-style tree) |
+| **Firewall** | OPNsense 26.7 or newer |
+| **Entra ID** | A tenant where you can create an app registration (Application Administrator or higher) |
+| **DNS** | A hostname that resolves to your firewall's WAN address, e.g. `vpn.example.com` |
+| **Certificate** | A server certificate for that hostname, trusted by your users' browsers (a Let's Encrypt certificate from the **os-acme-client** plugin works well) |
+| **Client** | OpenVPN GUI 2.6+ (Windows), Tunnelblick 4.0.0b10+ (macOS), Viscosity, or OpenVPN3 3.9+ |
 
-## How it works (short version)
+Two ports must be reachable from the internet: the OpenVPN port itself
+(UDP 1194 by default) and the browser callback port (TCP 9000 by default).
 
-Users connect with a certificate-based OpenVPN profile. The server defers
-authentication to the `openvpn-auth-oauth2` daemon over the management
-interface; the daemon sends the client a `WEB_AUTH::` URL, the user signs in to
-Entra ID in their browser (Conditional Access and MFA apply), and the daemon
-approves the session. Reconnects are silent while the auth token is valid.
+> **Note on clients:** NetworkManager on Linux does not support browser
+> authentication and cannot be used. OpenVPN Connect v3 works only partially.
+> Use one of the clients listed above.
 
-The plugin adds a **VPN → OpenVPN → SSO (OAuth2 / Entra ID)** page to configure
-the daemon, supervises it as a proper OPNsense service, and works around the
-management-socket conflict with the GUI via the daemon's pass-through proxy —
-see the [architecture section](docs/INVESTIGATION.md#integration-architecture-on-opnsense).
+---
 
-## Requirements
+## Step 1 — Register the application in Entra ID
 
-- OPNsense 26.7 (OpenVPN ≥ 2.6.2, i.e. any current release)
-- An Entra ID tenant + app registration
-  ([runbook](docs/INVESTIGATION.md#entra-id-app-registration-runbook))
-- A webauth-capable client: OpenVPN GUI ≥ 2.6, Tunnelblick ≥ 4.0.0b10,
-  Viscosity, or OpenVPN3 ≥ 3.9
+You are creating an application that represents your VPN, so Entra ID knows who
+is asking when a user signs in.
 
-## Testing the scaffold on a lab box
+### 1.1 Create the app registration
 
-No package build needed for a dev loop:
+1. Go to the [Microsoft Entra admin center](https://entra.microsoft.com) and
+   sign in.
+2. Navigate to **Identity > Applications > App registrations**.
+3. Click **New registration**.
+4. Fill in:
+   - **Name**: something recognisable, e.g. `OPNsense OpenVPN SSO`
+   - **Supported account types**: *Accounts in this organizational directory
+     only (single tenant)*
+   - **Redirect URI**: select platform **Web** and enter:
+     ```
+     https://vpn.example.com:9000/oauth2/callback
+     ```
+     Replace `vpn.example.com` with your own hostname. Keep `:9000` and
+     `/oauth2/callback` exactly as shown unless you change the port later.
+5. Click **Register**.
+
+On the **Overview** page that opens, copy these two values, you will need them:
+
+- **Application (client) ID**
+- **Directory (tenant) ID**
+
+### 1.2 Create a client secret
+
+1. In your new app registration, go to **Certificates & secrets**.
+2. Under **Client secrets**, click **New client secret**.
+3. Give it a description and an expiry (24 months is the maximum).
+4. Click **Add**, then **immediately copy the `Value` column**. It is shown only
+   once, and the `Secret ID` is not the value you need.
+
+> ⚠️ **Put the expiry date in your calendar.** When the secret expires, VPN
+> logins stop working, with no warning beforehand.
+
+### 1.3 Check API permissions
+
+1. Go to **API permissions**.
+2. You need the delegated Microsoft Graph permissions **openid**, **profile**
+   and **offline_access**. `User.Read` is usually present by default and already
+   implies `openid` and `profile`; add anything missing with
+   **Add a permission > Microsoft Graph > Delegated permissions**.
+3. `offline_access` is what allows silent reconnects, so do not skip it.
+4. Click **Grant admin consent for &lt;tenant&gt;** so users are not prompted
+   individually.
+
+### 1.4 Decide who may connect (recommended)
+
+The simplest and most robust method is to let Entra ID do the filtering:
+
+1. Go to **Identity > Applications > Enterprise applications** and open the
+   application you just registered.
+2. **Properties > Assignment required?** > **Yes** > **Save**.
+3. **Users and groups > Add user/group** and assign the people or groups who may
+   use the VPN.
+
+Anyone not assigned is refused by Microsoft during sign-in, before your firewall
+is ever involved.
+
+*Alternative:* if you prefer to filter on the firewall, configure a groups claim
+(**Token configuration > Add groups claim > Security groups**, emitted as group
+**object IDs**) and list those object IDs in the plugin's *Allowed groups* field
+later. Note that Entra omits the claim entirely for users in more than 200
+groups, which then denies them.
+
+### 1.5 Optional hardening
+
+Under **Security > Conditional Access**, create a policy scoped to this
+application to require MFA, a compliant device, or specific named locations.
+This is the main reason to use SSO rather than passwords, so it is worth doing.
+
+### What to write down
+
+| Value | Where you found it | Example |
+|---|---|---|
+| Directory (tenant) ID | App registration > Overview | `2c9f...-...-...-...-...b81e` |
+| Application (client) ID | App registration > Overview | `7a1b...-...-...-...-...4f3d` |
+| Client secret value | Certificates & secrets | `abc8Q~...` |
+| Public base URL | Chosen by you | `https://vpn.example.com:9000` |
+
+---
+
+## Step 2 — Prepare the OpenVPN server
+
+**Already have a working OpenVPN server instance?** Skip to
+[2.4](#24-checklist-for-an-existing-instance) and just check three settings.
+
+### 2.1 Certificates
+
+Under **System > Trust** you need:
+
+1. **Authorities**: an internal Certificate Authority (create one if you have
+   none: *Add > Method: Create an internal Certificate Authority*).
+2. **Certificates**: a server certificate issued by that CA, with **Type:
+   Server Certificate**.
+
+These secure the VPN tunnel itself. The certificate for the browser callback is
+a separate one, see [4.1](#41-certificate-for-the-callback-listener).
+
+### 2.2 Create the instance
+
+Go to **VPN > OpenVPN > Instances** and click **+**. The settings that matter:
+
+| Field | Value |
+|---|---|
+| **Role** | `Server` |
+| **Description** | e.g. `SSO VPN` |
+| **Protocol** / **Port number** | `UDP` / `1194` |
+| **Type** | `tun` |
+| **Certificate** | the server certificate from 2.1 |
+| **Certificate Authority** | the CA from 2.1 |
+| **Verify Client Certificate** | `Required` |
+| **Server (IPv4)** | a free subnet for VPN clients, e.g. `10.10.0.0/24` |
+| **Authentication** | **leave empty** (see the warning below) |
+| **Auth Token Lifetime** | `28800` (8 hours) |
+| **Renegotiate time** | `0` |
+| **Local Network** | the networks clients should reach, e.g. `192.168.1.0/24` |
+
+Click **Save**, then enable the instance.
+
+> ⚠️ **Leave *Authentication* empty.** It sits under the *Authentication*
+> section and normally points at a local or LDAP user database. If you set it,
+> users must pass *both* that backend *and* Entra ID, which is not what you
+> want here. Identity comes from Entra ID.
+
+**Auth Token Lifetime** and **Renegotiate time** are what keep users from being
+sent back to the browser mid-session: the client receives a token on first login
+and reuses it silently until it expires.
+
+You do **not** need to touch the **Options** field. The plugin adds the required
+`management-client-auth` directive there itself when you save its settings.
+
+### 2.3 Firewall rule for the VPN port
+
+**Firewall > Rules > WAN**, add a rule:
+
+| Field | Value |
+|---|---|
+| Action | Pass |
+| Protocol | UDP |
+| Destination | WAN address |
+| Destination port | 1194 |
+
+Also check **Firewall > Rules > OpenVPN** allows the traffic you want VPN
+clients to reach.
+
+### 2.4 Checklist for an existing instance
+
+If you already run OpenVPN, open the instance under **VPN > OpenVPN >
+Instances** and confirm:
+
+- [ ] **Authentication** is empty
+- [ ] **Auth Token Lifetime** is set (e.g. `28800`) and **Renegotiate time** is `0`
+- [ ] **Verify Client Certificate** is `Required`, and your users have client
+      certificates
+
+Nothing else changes; existing clients keep working until you switch them over.
+
+---
+
+## Step 3 — Install the plugin
+
+### 3.1 Add the SurfHost repository
+
+The plugin is not in the official OPNsense repository, so add ours once. SSH
+into the firewall (or use **Interfaces > Diagnostics > Command**) as `root`:
 
 ```sh
-# on the OPNsense test box
-pkg install openvpn-auth-oauth2          # from ports/pkg repo
-rsync -av os-openvpn-auth-oauth2/src/ root@fw:/usr/local/
-# clear MVC caches so the new page/model are picked up
-ssh root@fw 'rm -rf /tmp/opnsense_mvc_cache* ; service configd restart ; service php_fpm restart'
+fetch -o /usr/local/etc/pkg/repos/surfhost.conf https://surfhost.github.io/opnsense-plugin-entra-sso/surfhost.conf
+pkg update
 ```
 
-Then create/select an OpenVPN instance and leave its *Authentication* empty.
-Configure **VPN → OpenVPN → SSO** with your tenant/client credentials and save:
-the plugin adds the `management-client-auth` directive to that instance (which
-the GUI cannot set) and restarts it, so the status panel's
-*management-client-auth* row should read **present**. Confirm the directive
-reached the generated config:
+The repository serves only SurfHost plugins and sits at a lower priority than
+the official one, so it cannot replace OPNsense packages.
+
+### 3.2 Install the plugin
+
+In the GUI, go to **System > Firmware > Plugins**, search for
+`os-openvpn-auth-oauth2` and click **+** to install.
+
+Or from the shell:
 
 ```sh
+pkg install os-openvpn-auth-oauth2
+```
+
+After installation a new menu entry appears: **VPN > OpenVPN > SSO (OAuth2 /
+Entra ID)**. If you do not see it, force a reload with
+`service configd restart && service php_fpm restart`.
+
+### 3.3 Updating and removing
+
+Updates arrive through the normal **System > Firmware > Updates** flow once the
+repository is added. To remove everything:
+
+```sh
+pkg delete os-openvpn-auth-oauth2
+rm /usr/local/etc/pkg/repos/surfhost.conf
+pkg update
+```
+
+---
+
+## Step 4 — Configure the plugin
+
+### 4.1 Certificate for the callback listener
+
+The browser connects to your firewall at `https://vpn.example.com:9000`, so that
+listener needs a certificate your users' browsers trust. A self-signed
+certificate produces a warning page and some VPN clients refuse it outright.
+
+The easiest route is the **os-acme-client** plugin: install it, create a
+Let's Encrypt certificate for `vpn.example.com`, and it lands in
+**System > Trust > Certificates** ready to select. Alternatively import a
+certificate you already own.
+
+### 4.2 Fill in the settings
+
+Go to **VPN > OpenVPN > SSO (OAuth2 / Entra ID)**:
+
+| Field | Value |
+|---|---|
+| **Enable** | ticked |
+| **OpenVPN instance** | the instance from step 2 |
+| **Tenant ID** | Directory (tenant) ID from step 1 |
+| **Client ID** | Application (client) ID from step 1 |
+| **Client secret** | the secret *value* from step 1 |
+| **Allowed groups** | leave empty if you used *Assignment required* in 1.4 |
+| **Public base URL** | `https://vpn.example.com:9000` — must match the redirect URI in Entra exactly |
+| **Listen port** | `9000` |
+| **Encryption secret** | 16, 24 or 32 random letters and digits |
+| **Enable TLS** | ticked |
+| **Certificate** | the certificate from 4.1 |
+
+Generate the encryption secret with:
+
+```sh
+openssl rand -hex 16
+```
+
+It encrypts browser session cookies and stored refresh tokens. Changing it later
+forces everyone to sign in again.
+
+Click **Save**. The plugin now:
+
+- writes the daemon configuration,
+- adds `management-client-auth` to your OpenVPN instance and **restarts that
+  instance** (active tunnels drop once, here),
+- starts the SSO service.
+
+### 4.3 Firewall rule for the callback port
+
+**Firewall > Rules > WAN**, add a second rule:
+
+| Field | Value |
+|---|---|
+| Action | Pass |
+| Protocol | TCP |
+| Destination | WAN address |
+| Destination port | 9000 |
+
+Restrict the source to the networks your users browse from if you can. The
+listener only serves OAuth2 endpoints, but there is no reason to expose it more
+widely than necessary.
+
+### 4.4 Check the status panel
+
+The top of the SSO settings page shows five rows. For a healthy setup:
+
+| Row | Expected |
+|---|---|
+| Supervisor | running |
+| SSO daemon | running |
+| Management socket swap | active |
+| Callback listener | reachable |
+| OpenVPN 'management-client-auth' | present |
+
+If anything is off, see [Troubleshooting](#troubleshooting).
+
+---
+
+## Step 5 — Connect a client
+
+### 5.1 Export a client profile
+
+Go to **VPN > OpenVPN > Client Export**, pick your instance, choose a client
+certificate for the user, and download the `.ovpn` profile.
+
+Open the downloaded file in a text editor and make sure it contains:
+
+```
+auth-retry interact
+```
+
+Add that line if it is missing. It tells the client to wait for the browser
+login instead of failing immediately. The profile must **not** contain
+`auth-user-pass`.
+
+### 5.2 First login
+
+1. Import the profile into OpenVPN GUI, Tunnelblick or Viscosity.
+2. Connect.
+3. Your default browser opens at the Microsoft sign-in page.
+4. Sign in and complete MFA if your tenant requires it.
+5. The browser shows a success page, and the tunnel comes up.
+
+Reconnecting within the **Auth Token Lifetime** you configured happens silently,
+without a browser prompt.
+
+You can confirm the session under **VPN > OpenVPN > Connection Status**, which
+keeps working normally while SSO is active.
+
+---
+
+## Troubleshooting
+
+**Start here:** the status panel on the SSO page, plus the log at
+**System > Log Files > General**, filtered on `openvpn-auth-oauth2`. From the
+shell:
+
+```sh
+configctl openvpnauthoauth2 details
+```
+
+| Symptom | Cause and fix |
+|---|---|
+| `pkg update` gives a 404 | Your ABI directory does not exist yet in the repository. Check with `pkg config abi`; the repository currently serves `FreeBSD:14:amd64`. |
+| Plugin menu entry missing after install | `service configd restart && service php_fpm restart` |
+| Status: **management-client-auth missing** | Someone re-saved the OpenVPN instance in the GUI, which silently drops the directive. Press **Save** on the SSO page to restore it. |
+| Status: **daemon not running** | Usually a bad tenant/client ID or an unreachable Entra endpoint. Check the log for the actual error. |
+| Status: **callback listener unreachable** | The daemon failed to bind, often a certificate problem or a port already in use. Check the log and `sockstat -l \| grep 9000`. |
+| Browser never opens on connect | The client does not support browser authentication, or `auth-retry interact` is missing from the profile. |
+| Browser opens but cannot load the page | DNS for your base URL does not point at the firewall, or the WAN rule for TCP 9000 is missing. |
+| Certificate warning in the browser | The listener certificate is self-signed or does not match the hostname in the base URL. |
+| `AADSTS7000215` (invalid client secret) | Wrong secret, or the *Secret ID* was copied instead of the *Value*. |
+| `AADSTS50011` (redirect URI mismatch) | The redirect URI in Entra must be exactly your base URL plus `/oauth2/callback`. |
+| Login succeeds but VPN is refused | The user is not assigned to the enterprise application, or is not in a group listed under *Allowed groups*. |
+| Everyone is suddenly refused | The Entra client secret expired. Create a new one and paste the value into the plugin. |
+
+---
+
+## How it works
+
+Users connect with a certificate-based profile. The OpenVPN server defers
+authentication to the `openvpn-auth-oauth2` daemon over its management
+interface; the daemon sends the client a `WEB_AUTH::` URL, the user signs in to
+Entra ID in a browser, and the daemon approves the session with an auth token
+that makes later reconnects silent.
+
+OPNsense's OpenVPN instances already use the management socket for the GUI's
+Connection Status page, and OpenVPN allows only one management client. The
+plugin resolves that with a socket swap plus the daemon's pass-through proxy, so
+both the SSO daemon and the GUI keep working. The full design, the alternatives
+that were rejected, and the known limitations are in
+[docs/INVESTIGATION.md](docs/INVESTIGATION.md).
+
+---
+
+## Maintainer notes
+
+### Development loop
+
+Test changes without building a package:
+
+```sh
+rsync -av os-openvpn-auth-oauth2/src/ root@fw:/usr/local/
+ssh root@fw 'rm -rf /tmp/opnsense_mvc_cache*; service configd restart; service php_fpm restart'
+```
+
+Useful checks on the box:
+
+```sh
+configctl template reload OPNsense/OpenVPNAuthOAuth2
+configctl openvpnauthoauth2 start
+configctl openvpnauthoauth2 details
 grep management-client-auth /var/etc/openvpn/instance-*.conf
 ```
 
-Re-saving that instance under **VPN → OpenVPN → Instances** silently removes
-the directive again; the status row then reads *missing* until the next save
-here. That round trip is worth exercising once during the lab test.
+### Building and publishing a release
 
-Smoke tests:
+Run on an OPNsense box, from a checkout of this repository:
 
 ```sh
-configctl template reload OPNsense/OpenVPNAuthOAuth2   # YAML renders
-configctl openvpnauthoauth2 start
-configctl openvpnauthoauth2 status
-configctl openvpnauthoauth2 details                     # JSON health probe (feeds the UI panel)
-sockstat -l | grep 9000                                 # HTTPS listener up
-ls -l /var/etc/openvpn/server*.sock /var/etc/openvpn-auth-oauth2/   # socket swap done
+PUBLISH=1 ./tools/publish-repo.sh
 ```
 
-Finally connect with OpenVPN GUI / Tunnelblick: the browser should open the
-Entra ID login, and VPN → OpenVPN → Connection Status must still show the
-session (pass-through working). Negative tests: user outside the allowed
-groups is denied; pending auth times out; restarting the instance re-swaps the
-socket within ~5 s.
+That fetches the opnsense/plugins tree if needed, builds the package, generates
+the `pkg` metadata, and pushes the result to the `gh-pages` branch, which
+GitHub Pages serves as the package repository. Without `PUBLISH=1` it stages the
+files and prints the manual publish commands.
 
-For the release path (real package), drop `os-openvpn-auth-oauth2/` into a
-checkout of [opnsense/plugins](https://github.com/opnsense/plugins) under
-`security/` and run `make package` there.
+Bump `PLUGIN_VERSION` in
+[`os-openvpn-auth-oauth2/Makefile`](os-openvpn-auth-oauth2/Makefile) before
+building a new release, and tag the commit.
+
+---
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT, see [LICENSE](LICENSE). The plugin packages
+[openvpn-auth-oauth2](https://github.com/jkroepke/openvpn-auth-oauth2) by Jan-Otto
+Kröpke, also MIT licensed.

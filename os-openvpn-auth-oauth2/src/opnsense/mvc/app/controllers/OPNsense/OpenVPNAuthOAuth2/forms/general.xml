@@ -9,7 +9,7 @@
         <id>openvpnauthoauth2.general.vpnInstance</id>
         <label>OpenVPN instance</label>
         <type>dropdown</type>
-        <help>The OpenVPN server instance to protect with SSO. The instance must have 'management-client-auth' in its various flags and no authentication backend configured.</help>
+        <help>The OpenVPN server instance to protect with SSO. Leave that instance's Authentication field empty; the required 'management-client-auth' directive is added automatically when you save (see Advanced).</help>
     </field>
     <field>
         <type>header</type>
@@ -122,7 +122,7 @@
         <id>openvpnauthoauth2.daemon.autoFixInstanceFlag</id>
         <label>Repair OpenVPN instance flag</label>
         <type>checkbox</type>
-        <help>Add the required 'management-client-auth' directive to the selected instance when it is missing, and restart that instance. OPNsense offers no way to set this directive in the OpenVPN instance form and silently drops it whenever the instance is saved there, so without this repair SSO stops working after any edit of the instance. Note that the repair restarts the OpenVPN instance, dropping its active tunnels.</help>
+        <help>Add the required 'management-client-auth' directive to the selected instance when it is missing, and restart that instance. The instance's Options field does not offer this directive and silently drops it whenever the instance is saved, so without this repair SSO stops working after any edit of the instance. Note that the repair restarts the OpenVPN instance, dropping its active tunnels.</help>
     </field>
     <field>
         <id>openvpnauthoauth2.daemon.passthroughEnabled</id>
