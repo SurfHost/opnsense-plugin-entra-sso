@@ -81,7 +81,7 @@
         <id>openvpnauthoauth2.http.baseUrl</id>
         <label>Public base URL</label>
         <type>text</type>
-        <help>URL the user's browser reaches the firewall on, e.g. https://vpn.example.nl:9000; it must match DNS and the certificate, and be registered as redirect URI base in Entra.</help>
+        <help>URL the user's browser reaches the firewall on, e.g. https://vpn.example.nl:9443; it must match DNS and the certificate, and be registered as redirect URI base in Entra.</help>
     </field>
     <field>
         <id>openvpnauthoauth2.http.listenAddress</id>
