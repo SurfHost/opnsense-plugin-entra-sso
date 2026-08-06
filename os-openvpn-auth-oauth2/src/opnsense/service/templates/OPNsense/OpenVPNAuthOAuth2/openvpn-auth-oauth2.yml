@@ -73,9 +73,11 @@ oauth2:
     secret: {{ q(secret) }}
 
 {# core names an instance's management socket after its UUID, not its vpnid:
-   OpenVPN.php sets management to {sockFilename} = /var/etc/openvpn/
-   instance-{uuid}.sock. The server{vpnid}.sock form only applies to the
-   legacy (pre-Instances) OpenVPN servers. #}
+   OpenVPN/FieldTypes/InstanceField.php defines sockFilename as
+   /var/etc/openvpn/instance-{uuid}.sock, and OpenVPN.php emits
+   `management {sockFilename} unix`. OpenVPN.php defines a sockFilename of
+   its own as server{vpnid}.sock, but that one belongs to the legacy
+   (pre-Instances) servers. #}
 openvpn:
 {% if cfg.daemon.passthroughEnabled|default('', true) == '1' %}
   addr: "unix:///var/etc/openvpn-auth-oauth2/instance-{{ instance_uuid }}.sock"

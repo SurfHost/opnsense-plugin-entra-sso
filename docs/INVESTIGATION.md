@@ -105,11 +105,19 @@ So we must use management-interface mode.
 
 `opnsense/core` generates each instance config in
 `src/opnsense/mvc/app/models/OPNsense/OpenVPN/OpenVPN.php`
-(`generateInstanceConfig()`) and always emits:
+(`generateInstanceConfig()`) and always emits `management {sockFilename} unix`.
+For an **Instance** that path is defined in
+`src/opnsense/mvc/app/models/OPNsense/OpenVPN/FieldTypes/InstanceField.php`:
 
 ```
-management /var/etc/openvpn/server{vpnid}.sock unix
+management /var/etc/openvpn/instance-{uuid}.sock unix
 ```
+
+> ⚠️ **Correction (verified Aug 2026):** earlier revisions of this document
+> said `server{vpnid}.sock`. That form is real, but it is `OpenVPN.php`'s own
+> definition for the **legacy pre-Instances servers**, not for Instances.
+> Building the supervisor against it is why the first release did nothing at
+> all: it waited forever on a socket that never appears.
 
 The GUI (connection status page, session kill) talks to that socket. OpenVPN
 accepts exactly one `management` directive and one connected management client,
@@ -128,14 +136,15 @@ The OPNsense GUI only needs `status`/`kill`, which pass through cleanly.
 Because core hardcodes the socket path, the plugin's supervisor performs a
 **socket swap** per SSO-enabled instance:
 
-1. OpenVPN starts and binds `S = /var/etc/openvpn/server{vpnid}.sock`.
-2. Supervisor renames `S` to `/var/etc/openvpn-auth-oauth2/server{vpnid}.sock`.
+1. OpenVPN starts and binds `S = /var/etc/openvpn/instance-{uuid}.sock`.
+2. Supervisor renames `S` to `/var/etc/openvpn-auth-oauth2/instance-{uuid}.sock`.
    A rename preserves the bound unix-socket inode; OpenVPN keeps listening.
    (The swap directory deliberately sits next to `/var/etc/openvpn` so the
    rename can never cross a filesystem boundary, e.g. a tmpfs `/var/run`.)
 3. Supervisor starts the daemon with
-   `openvpn.addr = unix:///var/etc/openvpn-auth-oauth2/server{vpnid}.sock` and
-   `openvpn.pass-through.address = unix:///var/etc/openvpn/server{vpnid}.sock`.
+   `openvpn.addr = unix:///var/etc/openvpn-auth-oauth2/instance-{uuid}.sock`
+   and
+   `openvpn.pass-through.address = unix:///var/etc/openvpn/instance-{uuid}.sock`.
 4. The GUI reconnects to the original path and lands on the pass-through
    listener, transparently.
 5. Supervisor watches the inode of `S` (~5 s poll). When OPNsense restarts the
@@ -324,8 +333,10 @@ Client profile: certificate-based profile exported from OPNsense, plus
 - openvpn-auth-oauth2: <https://github.com/jkroepke/openvpn-auth-oauth2> (README + wiki:
   Configuration, Providers/Entra, Supported clients, Management pass-through)
 - FreeBSD port: <https://www.freshports.org/security/openvpn-auth-oauth2/>
-- OPNsense OpenVPN Instances model:
+- OPNsense OpenVPN Instances model (config generator, `management` directive):
   <https://github.com/opnsense/core/blob/master/src/opnsense/mvc/app/models/OPNsense/OpenVPN/OpenVPN.php>
+- OPNsense OpenVPN Instances socket naming (`sockFilename`, unchanged since 23.7):
+  <https://github.com/opnsense/core/blob/master/src/opnsense/mvc/app/models/OPNsense/OpenVPN/FieldTypes/InstanceField.php>
 - OPNsense plugin development: <https://docs.opnsense.org/development/examples/helloworld.html>
 - OPNsense 25.7 release notes (legacy OpenVPN deprecation):
   <https://docs.opnsense.org/releases/CE_25.7.html>

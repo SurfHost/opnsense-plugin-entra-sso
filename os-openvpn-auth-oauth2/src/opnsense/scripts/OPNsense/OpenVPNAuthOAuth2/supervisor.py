@@ -7,7 +7,11 @@
     Lifecycle supervisor for openvpn-auth-oauth2 on OPNsense.
 
     OPNsense's OpenVPN Instances hardcode `management /var/etc/openvpn/
-    server{vpnid}.sock unix` and the GUI polls that socket for status/kill.
+    instance-{uuid}.sock unix` and the GUI polls that socket for status/kill.
+    (Core defines that path in OpenVPN/FieldTypes/InstanceField.php; the
+    server{vpnid}.sock form is OpenVPN.php's own definition for the legacy
+    pre-Instances servers. Assuming that form here is why the first release
+    did nothing at all.)
     OpenVPN accepts a single management client, so the SSO daemon cannot share
     the socket directly. This supervisor implements the socket swap described
     in docs/INVESTIGATION.md:
