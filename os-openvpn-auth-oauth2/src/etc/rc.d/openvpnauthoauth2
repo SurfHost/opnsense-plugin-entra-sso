@@ -26,7 +26,36 @@ load_rc_config ${name}
 pidfile="/var/run/${name}.pid"
 child_pidfile="/var/run/${name}.child.pid"
 supervisor="/usr/local/opnsense/scripts/OPNsense/OpenVPNAuthOAuth2/supervisor.py"
+etc_dir="/usr/local/etc/openvpn-auth-oauth2"
 command="/usr/sbin/daemon"
 command_args="-S -T openvpn-auth-oauth2 -R 5 -f -P ${pidfile} -p ${child_pidfile} /usr/local/bin/python3 ${supervisor}"
+
+start_precmd="openvpnauthoauth2_precmd"
+
+# configd chmods every file it renders to the parent directory's mode minus the
+# execute bits (core: src/opnsense/service/modules/template.py). The runtime
+# config directory ships 0755 from the security/openvpn-auth-oauth2 package, so
+# the rendered openvpn-auth-oauth2.yml, which carries the Entra client secret
+# and the cookie/refresh-token encryption secret, would land world-readable at
+# 0644. Forcing the directory to 0700 makes every later render 0600 by itself;
+# the file chmod repairs the render that already happened, since reconfigure
+# renders the template before it starts this service.
+#
+# 'mkdir -m' only applies its mode to directories it actually creates, and this
+# directory normally already exists, so the explicit chmod is not redundant.
+# The function must return 0: rc.subr aborts the start on a non-zero precmd.
+openvpnauthoauth2_precmd()
+{
+	/bin/mkdir -p ${etc_dir} || return 1
+	/bin/chmod 0700 ${etc_dir} || return 1
+
+	for _secret in ${etc_dir}/openvpn-auth-oauth2.yml ${etc_dir}/http.key; do
+		if [ -f "${_secret}" ]; then
+			/bin/chmod 0600 "${_secret}"
+		fi
+	done
+
+	return 0
+}
 
 run_rc_command "$1"

@@ -52,7 +52,9 @@ OpenVPN client            OPNsense / OpenVPN server        openvpn-auth-oauth2  
      |  8. tunnel up              |                              |                        |
 ```
 
-The daemon runs an HTTPS listener (default `:9000`) that serves the OAuth2
+The daemon runs an HTTPS listener (upstream default `:9000`; the plugin
+defaults to `:9443` because OPNsense's php-fpm already occupies
+`127.0.0.1:9000`) that serves the OAuth2
 authorization-code callback (`/oauth2/callback`) and talks to OpenVPN through the
 management interface. No password ever transits OpenVPN; identity is asserted by
 Entra ID and the result is pushed to the server as `client-auth`/`client-deny`.
@@ -157,9 +159,11 @@ status/kill for that one instance (documented limitation).
 - Leave **Authentication** (authmode) empty, otherwise `ovpn_event.py --defer`
   *and* the SSO daemon must both approve every login (usable as a deliberate
   2-source auth, but not the default).
-- Use the native **auth token lifetime / renewal** fields (`auth-gen-token`) and
-  set renegotiation (`reneg-sec`) to `0`, per upstream SSO guidance, so users
-  aren't re-prompted mid-session.
+- Use the native **auth token lifetime / renewal** fields (`auth-gen-token`).
+  Some SSO setups suggest `reneg-sec 0`, but OPNsense rejects a token lifetime
+  combined with a zero Renegotiate time ("A token lifetime requires a non zero
+  Renegotiate time"); keep the default `3600`. Renegotiation is satisfied
+  silently by the auth token, so users aren't re-prompted mid-session.
 - Server runs OpenVPN ≥ 2.6.2, satisfied by OPNsense 26.7.
 
 ### Blocker: `management-client-auth` is not settable in the stock UI
@@ -208,7 +212,7 @@ Consequences for this plugin:
 1. **Entra admin center > App registrations > New registration**
    - Name e.g. `OPNsense OpenVPN SSO`; single tenant.
    - Platform **Web**; redirect URI: `https://<baseUrl>/oauth2/callback`
-     (e.g. `https://vpn.example.nl:9000/oauth2/callback`).
+     (e.g. `https://vpn.example.nl:9443/oauth2/callback`).
 2. **Certificates & secrets** > new client secret (confidential client).
    Record the *value* immediately; set a calendar reminder for expiry,
    Entra secrets max out at 24 months and the VPN dies silently when it lapses.
@@ -233,7 +237,7 @@ client, since the browser flow happens outside the tunnel):
 
 | Option | Notes |
 |---|---|
-| **Dedicated HTTPS listener on :9000 with a cert from the OPNsense trust store** | Recommended; simplest; Viscosity requires HTTPS |
+| **Dedicated HTTPS listener on :9443 with a cert from the OPNsense trust store** | Recommended; simplest; Viscosity requires HTTPS |
 | Reverse proxy via os-caddy / os-nginx | Nice if a proxy already terminates TLS on 443 |
 | Plain HTTP | Only for lab testing; several clients refuse it |
 
@@ -241,7 +245,7 @@ Requirements:
 
 - DNS name of `baseUrl` must resolve publicly and match the certificate
   (a Let's Encrypt cert via the os-acme-client plugin works well).
-- Firewall: WAN rule allowing TCP/9000 to the firewall itself (or restrict to
+- Firewall: WAN rule allowing TCP/9443 to the firewall itself (or restrict to
   expected user networks). The listener speaks only OAuth2 endpoints and is
   protected by state cookies (`http.secret`), but it is still an exposed
   service, keep the port filtered where possible.

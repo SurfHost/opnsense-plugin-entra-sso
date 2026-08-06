@@ -70,6 +70,10 @@ SWAP_DIR = '/var/etc/openvpn-auth-oauth2'
 CONFIG_XML = '/conf/config.xml'
 SOCKET_WAIT_TIMEOUT = 60
 PROXY_WAIT_TIMEOUT = 15
+# how long an empty GUI path is attributed to a proxy that has not bound yet
+# rather than to an OpenVPN restart; measured from daemon start, so it
+# subsumes PROXY_WAIT_TIMEOUT
+PROXY_GRACE = 120
 CONFIG_RETRY_DELAY = 30
 RAPID_EXIT_WINDOW = 10
 MAX_BACKOFF = 60
@@ -234,7 +238,8 @@ def secure_config(conf, target_dir=ETC_DIR):
     """configd renders the daemon YAML with the parent directory's mode minus
     the execute bits, so a 0755 directory (created by the dependency package)
     yields a world-readable 0644 file holding the Entra client secret and the
-    cookie/refresh-token encryption key. Lock both down before every start;
+    cookie/refresh-token encryption key. Lock both down at supervisor start
+    (including the idle paths) and again before every daemon start;
     with the directory at 0700 later re-renders land at 0600 by themselves."""
     try:
         os.makedirs(target_dir, mode=0o700, exist_ok=True)
@@ -501,7 +506,9 @@ def run(conf):
             proxy_ident = wait_for_proxy(gui_socket, swapped_socket, openvpn_ident)
             if proxy_ident is None and not shutting_down \
                     and daemon_proc is not None and daemon_proc.poll() is None:
-                log(syslog.LOG_WARNING, 'pass-through proxy slow to appear at the GUI path')
+                log(syslog.LOG_WARNING,
+                    f'pass-through proxy not at the GUI path after {PROXY_WAIT_TIMEOUT}s, '
+                    f'still waiting (up to {PROXY_GRACE}s from daemon start)')
 
         while not shutting_down:
             time.sleep(1)
@@ -514,6 +521,14 @@ def run(conf):
                     break
                 current = socket_ident(gui_socket)
                 if current is None:
+                    if proxy_ident is None:
+                        # our proxy has not bound yet: an empty GUI path here is
+                        # not evidence of an OpenVPN restart
+                        if time.monotonic() - started < PROXY_GRACE:
+                            continue
+                        log(syslog.LOG_ERR,
+                            'pass-through proxy never appeared at the GUI path, restarting cycle')
+                        break
                     log(syslog.LOG_NOTICE, 'OpenVPN restart detected, re-running socket swap')
                     break
                 if proxy_ident is None:
@@ -564,6 +579,11 @@ def main():
     signal.signal(signal.SIGINT, handle_signal)
 
     conf = read_conf()
+    # Lock the config directory down unconditionally. start_daemon() is only
+    # reached once a live management socket exists, so leaving this to the
+    # daemon start path leaves the rendered secrets at 0644 whenever the
+    # service idles (disabled, no vpnid) or waits for OpenVPN to come up.
+    secure_config(conf)
     if conf.get('enabled') != '1':
         reconcile_idle()
         idle_forever('service not enabled in configuration')

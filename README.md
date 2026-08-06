@@ -63,21 +63,24 @@ is asking when a user signs in.
 
 1. Go to the [Microsoft Entra admin center](https://entra.microsoft.com) and
    sign in.
-2. Navigate to **Identity > Applications > App registrations**.
+2. Navigate to **Entra ID > App registrations**.
 3. Click **New registration**.
 4. Fill in:
    - **Name**: something recognisable, e.g. `OPNsense OpenVPN SSO`
-   - **Supported account types**: *Accounts in this organizational directory
-     only (single tenant)*
-   - **Redirect URI**: select platform **Web** and enter:
-     ```
-     https://vpn.example.com:9443/oauth2/callback
-     ```
-     Replace `vpn.example.com` with your own hostname. Keep `:9443` and
-     `/oauth2/callback` exactly as shown unless you change the port later.
+   - **Supported account types**: *Single tenant only - &lt;your tenant&gt;*
 5. Click **Register**.
+6. Add the redirect URI: in the new app registration go to
+   **Manage > Authentication**. On the **Redirect URI configuration** tab, click
+   **Add Redirect URI**, choose the **Web** platform tile, enter:
+   ```
+   https://vpn.example.com:9443/oauth2/callback
+   ```
+   and click **Configure**. Replace `vpn.example.com` with your own hostname.
+   Keep `:9443` and `/oauth2/callback` exactly as shown unless you change the
+   port later.
 
-On the **Overview** page that opens, copy these two values, you will need them:
+On the app registration's **Overview** page, copy these two values, you will
+need them:
 
 - **Application (client) ID**
 - **Directory (tenant) ID**
@@ -108,7 +111,7 @@ On the **Overview** page that opens, copy these two values, you will need them:
 
 The simplest and most robust method is to let Entra ID do the filtering:
 
-1. Go to **Identity > Applications > Enterprise applications** and open the
+1. Go to **Entra ID > Enterprise apps > All applications** and open the
    application you just registered.
 2. **Properties > Assignment required?** > **Yes** > **Save**.
 3. **Users and groups > Add user/group** and assign the people or groups who may
@@ -125,8 +128,8 @@ groups, which then denies them.
 
 ### 1.5 Optional hardening
 
-Under **Security > Conditional Access**, create a policy scoped to this
-application to require MFA, a compliant device, or specific named locations.
+Under **Entra ID > Conditional Access > Policies**, create a policy scoped to
+this application to require MFA, a compliant device, or specific named locations.
 This is the main reason to use SSO rather than passwords, so it is worth doing.
 
 ### Reusing an existing app registration
@@ -136,7 +139,8 @@ needs no changes, but three things must still line up:
 
 1. **The redirect URI must match the new firewall's public base URL exactly**,
    including scheme, hostname and port. If the hostname or port changes, add
-   the new URI under **Authentication > Redirect URIs**. An app registration can
+   the new URI on the **Authentication** page (**Redirect URI configuration**
+   tab). An app registration can
    hold several, so you can keep the old one during a migration.
 2. **DNS for that hostname must point at the new firewall.**
 3. **The listener certificate must exist on the new firewall**, since it lives
@@ -193,7 +197,7 @@ Go to **VPN > OpenVPN > Instances** and click **+**. The settings that matter:
 | **Protocol** / **Port number** | `UDP` / `1194` |
 | **Type** | `tun` |
 | **Certificate** | the server certificate from 2.1 |
-| **Verify Client Certificate** | `Required` |
+| **Verify Client Certificate** | `require` (the default) |
 | **Server (IPv4)** | a free subnet for VPN clients, e.g. `10.10.0.0/24` |
 | **Authentication** | **leave empty** (see the warning below) |
 | **Auth Token Lifetime** | `28800` (8 hours) |
@@ -220,22 +224,26 @@ it if your CA differs from the one that issued that certificate.
 sent back to the browser mid-session: the client receives a token on first login
 and reuses it silently until it expires.
 
-You do **not** need to touch the **Options** field. The plugin adds the required
-`management-client-auth` directive there itself when you save its settings.
+You do **not** need to touch the **Options** field. When you save the plugin's
+own settings in step 4, the plugin adds the required `management-client-auth`
+directive there itself. Saving this instance form never adds it, and re-saving
+the instance later silently removes it again (see
+[Troubleshooting](#troubleshooting)).
 
 ### 2.3 Firewall rule for the VPN port
 
-**Firewall > Rules > WAN**, add a rule:
+**Firewall > Rules**, select **WAN** in the interface selector at the top of
+the page, and add a rule:
 
 | Field | Value |
 |---|---|
 | Action | Pass |
 | Protocol | UDP |
 | Destination | WAN address |
-| Destination port | 1194 |
+| Destination Port | 1194 |
 
-Also check **Firewall > Rules > OpenVPN** allows the traffic you want VPN
-clients to reach.
+Also select **OpenVPN** in the same interface selector and check that its rules
+allow the traffic you want VPN clients to reach.
 
 ### 2.4 Checklist for an existing instance
 
@@ -245,10 +253,14 @@ Instances** and confirm:
 - [ ] **Authentication** is empty
 - [ ] **Auth Token Lifetime** is set (e.g. `28800`) and **Renegotiate time** is
       non-zero (the default `3600` is fine)
-- [ ] **Verify Client Certificate** is `Required`, and your users have client
+- [ ] **Verify Client Certificate** is `require`, and your users have client
       certificates
 
-Nothing else changes; existing clients keep working until you switch them over.
+Nothing else changes yet; existing clients keep working. Be aware the cutover
+is instance-wide: once you save the plugin settings in step 4, every client of
+this instance goes through the browser sign-in on its next connect. Their
+existing profiles keep working, but clients without browser support, such as
+NetworkManager, will no longer connect.
 
 ---
 
@@ -257,15 +269,24 @@ Nothing else changes; existing clients keep working until you switch them over.
 ### 3.1 Add the SurfHost repository
 
 The plugin is not in the official OPNsense repository, so add ours once. SSH
-into the firewall (or use **Interfaces > Diagnostics > Command**) as `root`:
+into the firewall as `root`, or use option **8) Shell** on the console
+(OPNsense has no GUI page for running shell commands):
 
 ```sh
 fetch -o /usr/local/etc/pkg/repos/surfhost.conf https://surfhost.github.io/opnsense-plugin-entra-sso/surfhost.conf
 pkg update
 ```
 
-The repository serves only SurfHost plugins and sits at a lower priority than
-the official one, so it cannot replace OPNsense packages.
+The repository carries this plugin and a mirrored copy of the
+`openvpn-auth-oauth2` daemon it depends on, nothing else. It registers at a
+lower pkg priority than OPNsense's own repository (priority 11), so if both
+ever offered the same package name, OPNsense's copy is the one that gets
+installed.
+
+> Priority is a preference, not a sandbox. It does not apply to packages only
+> this repository provides, and `pkg install -r surfhost` bypasses it. Adding
+> the repository means trusting SurfHost to the same degree as any other
+> package source on the firewall.
 
 ### 3.2 Install the plugin
 
@@ -344,14 +365,15 @@ Click **Save**. The plugin now:
 
 ### 4.3 Firewall rule for the callback port
 
-**Firewall > Rules > WAN**, add a second rule:
+**Firewall > Rules**, select **WAN** in the interface selector again, and add a
+second rule:
 
 | Field | Value |
 |---|---|
 | Action | Pass |
 | Protocol | TCP |
 | Destination | WAN address |
-| Destination port | 9443 |
+| Destination Port | 9443 |
 
 Restrict the source to the networks your users browse from if you can. The
 listener only serves OAuth2 endpoints, but there is no reason to expose it more
@@ -359,15 +381,20 @@ widely than necessary.
 
 ### 4.4 Check the status panel
 
-The top of the SSO settings page shows five rows. For a healthy setup:
+The top of the SSO settings page shows six rows. For a healthy setup:
 
 | Row | Expected |
 |---|---|
 | Supervisor | running |
 | SSO daemon | running |
 | Management socket swap | active |
-| Callback listener | reachable |
+| Callback listener | listening |
+| Public base URL | consistent |
 | OpenVPN 'management-client-auth' | present |
+
+The *Callback listener* row only proves the service is listening on the
+firewall itself; whether your users can reach it from outside is what the
+firewall rule in 4.3 and the DNS record are for.
 
 If anything is off, see [Troubleshooting](#troubleshooting).
 
@@ -378,7 +405,7 @@ If anything is off, see [Troubleshooting](#troubleshooting).
 ### 5.1 Create a client certificate
 
 Each user needs their own client certificate, because the instance is set to
-**Verify Client Certificate: Required** and the certificate is what
+**Verify Client Certificate: require** and the certificate is what
 authenticates the VPN client itself. Entra ID then decides *who the person is*
 on top of that.
 
@@ -386,8 +413,8 @@ Go to **System > Trust > Certificates**, click **Add**, and choose:
 
 | Field | Value |
 |---|---|
-| **Method** | `Create an internal certificate` |
-| **Certificate authority** | the CA that issued your server certificate |
+| **Method** | `Create an internal Certificate` (the default) |
+| **Issuer** | the CA that issued your server certificate |
 | **Type** | `Client Certificate` |
 | **Common Name** | the user, e.g. `hans` (**required**, see below) |
 
@@ -455,11 +482,11 @@ configctl openvpnauthoauth2 details
 | Plugin menu entry missing after install | `service configd restart && service php_fpm restart` |
 | Status: **management-client-auth missing** | Someone re-saved the OpenVPN instance in the GUI, which silently drops the directive. Press **Save** on the SSO page to restore it. |
 | Status: **daemon not running** | Usually a bad tenant/client ID or an unreachable Entra endpoint. Check the log for the actual error. |
-| Status: **callback listener unreachable** | The daemon failed to bind, often a certificate problem or a port already in use. Check the log and `sockstat -l \| grep 9443`. **Do not use port 9000**: OPNsense's php-fpm listens on `127.0.0.1:9000`, so binding the wildcard address there fails. |
+| Status: **callback listener not listening** | The daemon failed to bind, often a certificate problem or a port already in use. Check the log and `sockstat -l \| grep 9443`. **Do not use port 9000**: OPNsense's php-fpm listens on `127.0.0.1:9000`, so binding the wildcard address there fails. |
 | Export fails with **Client certificate not found** | Either the *"(none) Exclude certificate from export"* row was used, or the certificate has no Common Name (its **Name** column reads `/C=NL` rather than `/CN=...`). Recreate it with a Common Name. |
 | Export fails with **Certificate does not belong to server CA** | You picked a *server* certificate. Export only accepts client certificates issued by the instance's CA. |
 | `Options error: No client-side authentication method is specified` | The exported profile has no `<cert>`/`<key>` block, i.e. it was exported with the certificate excluded. Re-export with the certificate selected. |
-| Client hangs at *TLS key negotiation failed to occur within 60 seconds* | The client never reaches the server, so no browser is ever requested. Capture on the OpenVPN interface with filter `1194`. If you see the request arrive and a reply leave, but the reply's destination MAC differs from the sender's, pf's `reply-to` is forcing answers to the interface gateway; tick **Disable reply-to** on the rule (or in Firewall > Settings > Advanced). This bites when the client shares a subnet with a gateway-bearing interface. |
+| Client hangs at *TLS key negotiation failed to occur within 60 seconds* | The client never reaches the server, so no browser is ever requested. Capture on the OpenVPN interface with filter `1194`. If you see the request arrive and a reply leave, but the reply's destination MAC differs from the sender's, pf's `reply-to` is forcing answers to the interface gateway; tick **Disable reply-to** on the rule (enable the advanced mode toggle in the rule dialog to see it), or set it globally in Firewall > Settings > Advanced. This bites when the client shares a subnet with a gateway-bearing interface. |
 | Browser never opens on connect | The client does not support browser authentication, or the profile disconnects too early (try adding `auth-retry interact`). |
 | Browser opens but cannot load the page | DNS for your base URL does not point at the firewall, or the WAN rule for TCP 9443 is missing. |
 | Certificate warning in the browser | The listener certificate is self-signed or does not match the hostname in the base URL. |
@@ -555,8 +582,14 @@ DAEMON_PKG=/tmp/openvpn-auth-oauth2.pkg PUBLISH=1 ./tools/publish-repo.sh
 
 That fetches the opnsense/plugins tree if needed, builds the plugin, copies the
 daemon package alongside it, generates the `pkg` metadata for the current ABI,
-and pushes the result to the `gh-pages` branch that GitHub Pages serves. Without
-`PUBLISH=1` it stages the files and prints the manual publish commands.
+and pushes the result to the `gh-pages` branch that GitHub Pages serves,
+together with [`tools/surfhost.conf`](tools/surfhost.conf), which is the copy
+users fetch. Without `PUBLISH=1` it stages the files and prints the manual
+publish commands.
+
+> Edits to `tools/surfhost.conf` only reach users after a publish run, and then
+> only once each firewall re-fetches the file: `pkg update` refreshes the
+> package catalogue, not the repository configuration.
 
 Bump `PLUGIN_VERSION` in
 [`os-openvpn-auth-oauth2/Makefile`](os-openvpn-auth-oauth2/Makefile) before

@@ -110,6 +110,7 @@ $(ls -1 "${STAGE}/${ABI}" | sed 's/^/      /')
       git clone --branch gh-pages --depth 1 ${REPO_URL} ${PAGES_CLONE}
       mkdir -p ${PAGES_CLONE}/${ABI}
       cp ${STAGE}/${ABI}/* ${PAGES_CLONE}/${ABI}/
+      cp ${SRC_DIR}/tools/surfhost.conf ${PAGES_CLONE}/surfhost.conf
       cd ${PAGES_CLONE} && git add -A && git commit -m 'Publish ${PORTNAME}' && git push
 EOF
     exit 0
@@ -119,8 +120,11 @@ echo "==> publishing to gh-pages"
 rm -rf "${PAGES_CLONE}"
 git clone --branch gh-pages --depth 1 "${REPO_URL}" "${PAGES_CLONE}"
 mkdir -p "${PAGES_CLONE}/${ABI}"
-rm -f "${PAGES_CLONE}/${ABI}"/*
+rm -f "${PAGES_CLONE}/${ABI:?}"/*
 cp "${STAGE}/${ABI}"/* "${PAGES_CLONE}/${ABI}/"
+# the repo config users fetch lives at the Pages root; publishing it from here
+# keeps tools/surfhost.conf the single source of truth
+cp "${SRC_DIR}/tools/surfhost.conf" "${PAGES_CLONE}/surfhost.conf"
 cd "${PAGES_CLONE}"
 git add -A
 if git diff --cached --quiet; then
