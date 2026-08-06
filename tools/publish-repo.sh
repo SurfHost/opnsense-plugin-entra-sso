@@ -23,6 +23,8 @@
 #   PAGES_CLONE  gh-pages clone used for push   (default /tmp/surfhost-pages)
 #   REPO_URL     git remote for the push        (default the GitHub HTTPS URL)
 #   DAEMON_PKG   openvpn-auth-oauth2 .pkg to mirror alongside the plugin
+#   RELEASE      set to 0 to skip the GitHub release step entirely
+#   RELEASE_NOTES  markdown file with the release notes for that step
 
 set -eu
 
@@ -134,3 +136,66 @@ fi
 git commit -m "Publish $(basename "${PKGFILE}") for ${ABI}"
 git push
 echo "==> published; clients pick it up after 'pkg update'"
+
+# Publishing the package repository is only half a release. GitHub's Releases
+# page is fed by release objects, not by tags, so a pushed tag on its own
+# leaves the sidebar advertising the previous version even though pkg is
+# already serving the new one. gh is not in OPNsense's package repository, so
+# on a firewall this cannot run here and prints the command instead.
+[ "${RELEASE:-1}" = "1" ] || exit 0
+
+PLUGIN_VERSION=$(sed -n 's/^PLUGIN_VERSION=[[:space:]]*\([^[:space:]]*\).*/\1/p' \
+    "${SRC_DIR}/${PLUGIN_SUBDIR}/Makefile")
+if [ -z "${PLUGIN_VERSION}" ]; then
+    echo "!!! could not read PLUGIN_VERSION; skipping the GitHub release" >&2
+    exit 0
+fi
+TAG="v${PLUGIN_VERSION}"
+TITLE="${PLUGIN_SUBDIR} ${PLUGIN_VERSION}"
+
+cd "${SRC_DIR}"
+
+if ! command -v gh >/dev/null 2>&1; then
+    cat <<EOF
+
+==> the GitHub release was NOT created: gh is not installed here, and it is
+    not available in OPNsense's package repository. Run this from a
+    workstation that has gh, after pushing the tag:
+
+      git push origin ${TAG}
+      gh release create ${TAG} --title '${TITLE}' --notes-file <notes.md>
+
+EOF
+    exit 0
+fi
+
+if gh release view "${TAG}" >/dev/null 2>&1; then
+    echo "==> GitHub release ${TAG} already exists, leaving it alone"
+    exit 0
+fi
+
+# Never let gh invent the tag: it would silently cut it from the default
+# branch head, which is not necessarily what was just built.
+if ! git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+    echo "!!! tag ${TAG} is not on the remote; push it first:" >&2
+    echo "      git push origin ${TAG}" >&2
+    exit 0
+fi
+
+if [ -n "${RELEASE_NOTES:-}" ] && [ -f "${RELEASE_NOTES}" ]; then
+    gh release create "${TAG}" --title "${TITLE}" --notes-file "${RELEASE_NOTES}"
+    echo "==> GitHub release ${TAG} created"
+else
+    cat <<EOF
+
+==> the GitHub release was NOT created: release notes are written by hand, so
+    the script will not invent them. Either re-run with
+
+      RELEASE_NOTES=notes.md PUBLISH=1 $0
+
+    or create it now with:
+
+      gh release create ${TAG} --title '${TITLE}' --notes-file <notes.md>
+
+EOF
+fi
