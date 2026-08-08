@@ -22,10 +22,11 @@ silent while the auth token is valid.
 3. [Step 2: Prepare the OpenVPN server](#step-2-prepare-the-openvpn-server)
 4. [Step 3: Install the plugin](#step-3-install-the-plugin)
 5. [Step 4: Configure the plugin](#step-4-configure-the-plugin)
-6. [Step 5: Connect a client](#step-5-connect-a-client)
-7. [Troubleshooting](#troubleshooting)
-8. [How it works](#how-it-works)
-9. [Maintainer notes](#maintainer-notes)
+6. [Step 5: Firewall rules](#step-5-firewall-rules)
+7. [Step 6: Connect a client](#step-6-connect-a-client)
+8. [Troubleshooting](#troubleshooting)
+9. [How it works](#how-it-works)
+10. [Maintainer notes](#maintainer-notes)
 
 ---
 
@@ -163,96 +164,134 @@ The tenant ID, client ID and client secret carry over unchanged.
 ## Step 2: Prepare the OpenVPN server
 
 **Already have a working OpenVPN server instance?** Skip to
-[2.4](#24-checklist-for-an-existing-instance) and just check three settings.
+[2.3](#23-checklist-for-an-existing-instance) and just check three settings.
 
 ### 2.1 Certificates
 
-Under **System > Trust** you need:
+Create three things under **System > Trust**, in this order.
 
-1. **Authorities**: an internal Certificate Authority (create one if you have
-   none: *Add > Method: Create an internal Certificate Authority*).
-2. **Certificates**: a server certificate issued by that CA, with **Type:
-   Server Certificate**.
+**The certificate authority.** Go to **Authorities** and click **Add**:
 
-Give the server certificate a **Common Name** (e.g. `vpn.example.com`), or the
-export option *Validate server subject* has nothing to check against.
+| Field | Value |
+|---|---|
+| **Method** | `Create an internal Certificate Authority` |
+| **Description** | `OpenVPN` |
+| **Common Name** | `OpenVPN` |
 
-> **Two certificates, two jobs.** The instance certificate secures the VPN
-> tunnel, and OpenVPN validates clients against the CA that issued it, so it
-> must come from your **internal CA**, the same one that issues client
-> certificates. Do not select a Let's Encrypt certificate here: the instance's
-> CA would become the public CA, and your client certificates would no longer be
-> accepted. The publicly trusted certificate belongs on the browser-facing
-> callback listener instead, see
-> [4.1](#41-certificate-for-the-callback-listener).
+**The server certificate.** Go to **Certificates** and click **Add**:
+
+| Field | Value |
+|---|---|
+| **Method** | `Create an internal Certificate` (the default) |
+| **Description** | `OpenVPN server` |
+| **Type** | `Server Certificate` |
+| **Issuer** | `OpenVPN` |
+| **Common Name** | `vpn.example.com` |
+
+**A client certificate.** Still under **Certificates**, click **Add** again:
+
+| Field | Value |
+|---|---|
+| **Method** | `Create an internal Certificate` (the default) |
+| **Description** | `OpenVPN client` |
+| **Type** | `Client Certificate` |
+| **Issuer** | `OpenVPN` |
+| **Common Name** | the user, e.g. `hans` |
+
+The **Common Name** is not optional on either certificate. A certificate created
+without one gets a subject like `/C=NL`, and the client export in step 6 then
+fails with *"Client certificate not found"* because there is no name to write
+into the profile. After creating them, check the **Name** column in the
+certificate list: it must read `/CN=hans`, not just `/C=NL`.
+
+One client certificate per user. Repeat the third step for everyone who needs
+the VPN, changing the **Description** and **Common Name** each time.
 
 ### 2.2 Create the instance
 
-Go to **VPN > OpenVPN > Instances** and click **+**. The settings that matter:
+Go to **VPN > OpenVPN > Instances** and click **+**. The *Edit Instance* dialog
+is grouped into sections; these are the fields that matter, in the order you
+meet them.
+
+**General Settings**
 
 | Field | Value |
 |---|---|
 | **Role** | `Server` |
-| **Description** | e.g. `SSO VPN` |
-| **Protocol** / **Port number** | `UDP` / `1194` |
-| **Type** | `tun` |
-| **Certificate** | the server certificate from 2.1 |
+| **Description** | e.g. `OpenVPN SSO` |
+| **Enabled** | ticked |
+| **Protocol** | `UDP` |
+| **Port number** | `1194` |
+| **Type** | `TUN` |
+| **Server (IPv4)** | a free subnet for VPN clients, e.g. `10.10.10.0/24` |
+
+**Trust**
+
+| Field | Value |
+|---|---|
+| **Certificate** | `OpenVPN server` from 2.1 |
 | **Verify Client Certificate** | `require` (the default) |
-| **Server (IPv4)** | a free subnet for VPN clients, e.g. `10.10.0.0/24` |
+
+**Authentication**
+
+| Field | Value |
+|---|---|
 | **Authentication** | **leave empty** (see the warning below) |
 | **Auth Token Lifetime** | `28800` (8 hours) |
-| **Renegotiate time** | leave at the default `3600` |
+
+**Routing**
+
+| Field | Value |
+|---|---|
 | **Local Network** | the networks clients should reach, e.g. `192.168.1.0/24` |
 
-Click **Save**, then enable the instance.
+Click **Save**. The instance is running immediately, because **Enabled** is part
+of the form; there is no separate step to switch it on afterwards.
+
+Leave **Renegotiate time** empty. It is empty out of the box, and that is fine:
+the client presents its auth token instead of returning to the browser, which is
+what **Auth Token Lifetime** is for. Do not type `0` in it, because OPNsense then
+refuses to save any token lifetime at all.
 
 There is no *Certificate Authority* field to fill in unless you enable
 **advanced mode**; the CA is taken from the certificate you selected. Only set
 it if your CA differs from the one that issued that certificate.
-
-> **Do not set *Renegotiate time* to 0.** OPNsense rejects that combination with
-> *"A token lifetime requires a non zero Renegotiate time"*. Renegotiation is
-> harmless here: the client presents its auth token instead of returning to the
-> browser, which is exactly what **Auth Token Lifetime** is for.
 
 > ⚠️ **Leave *Authentication* empty.** It sits under the *Authentication*
 > section and normally points at a local or LDAP user database. If you set it,
 > users must pass *both* that backend *and* Entra ID, which is not what you
 > want here. Identity comes from Entra ID.
 
-**Auth Token Lifetime** and **Renegotiate time** are what keep users from being
-sent back to the browser mid-session: the client receives a token on first login
-and reuses it silently until it expires.
-
-You do **not** need to touch the **Options** field. When you save the plugin's
-own settings in step 4, the plugin adds the required `management-client-auth`
-directive there itself. Saving this instance form never adds it, and re-saving
-the instance later silently removes it again (see
+You do **not** need to touch the **Options** field under *Miscellaneous*. When
+you save the plugin's own settings in step 4, the plugin adds the required
+`management-client-auth` directive there itself. Saving this instance form never
+adds it, and re-saving the instance later silently removes it again (see
 [Troubleshooting](#troubleshooting)).
 
-### 2.3 Firewall rule for the VPN port
+#### Sending all client traffic through the VPN
 
-**Firewall > Rules**, select **WAN** in the interface selector at the top of
-the page, and add a rule:
+By default only the **Local Network** routes are pushed, so clients reach your
+LAN through the tunnel and everything else keeps going out over their own
+internet connection. To send *all* their traffic through the firewall instead,
+open **Miscellaneous > Redirect gateway** and select **default**.
 
-| Field | Value |
-|---|---|
-| Action | Pass |
-| Protocol | UDP |
-| Destination | WAN address |
-| Destination Port | 1194 |
+That option is OpenVPN's `def1` flag, which is why the dropdown does not say
+`def1`. It works by pushing two overriding routes rather than replacing the
+client's default route, so nothing is left behind if the client disconnects
+uncleanly.
 
-Also select **OpenVPN** in the same interface selector and check that its rules
-allow the traffic you want VPN clients to reach.
+The field accepts more than one value. If your clients have IPv6, also select
+**ipv6 (default)**, otherwise IPv6 traffic keeps bypassing the tunnel while IPv4
+goes through it. Leaving the field empty is a normal split tunnel.
 
-### 2.4 Checklist for an existing instance
+### 2.3 Checklist for an existing instance
 
 If you already run OpenVPN, open the instance under **VPN > OpenVPN >
 Instances** and confirm:
 
 - [ ] **Authentication** is empty
-- [ ] **Auth Token Lifetime** is set (e.g. `28800`) and **Renegotiate time** is
-      non-zero (the default `3600` is fine)
+- [ ] **Auth Token Lifetime** is set (e.g. `28800`), and **Renegotiate time** is
+      either empty or non-zero
 - [ ] **Verify Client Certificate** is `require`, and your users have client
       certificates
 
@@ -324,10 +363,102 @@ The browser connects to your firewall at `https://vpn.example.com:9443`, so that
 listener needs a certificate your users' browsers trust. A self-signed
 certificate produces a warning page and some VPN clients refuse it outright.
 
-The easiest route is the **os-acme-client** plugin: install it, create a
-Let's Encrypt certificate for `vpn.example.com`, and it lands in
-**System > Trust > Certificates** ready to select. Alternatively import a
-certificate you already own.
+This is a *different* certificate from the one on the OpenVPN instance. The
+instance certificate comes from your internal CA, because OpenVPN validates
+client certificates against the CA that issued it. This one is publicly trusted
+and only ever faces a browser. Do not swap them.
+
+The route below uses **os-acme-client** with a Let's Encrypt certificate
+validated over DNS, through Cloudflare. DNS-01 is worth the extra setup here
+because it never requires an inbound connection to the firewall, so you do not
+have to open port 80. If you already own a certificate for the hostname, import
+it under **System > Trust > Certificates** instead and skip to 4.2.
+
+#### Create a Cloudflare API token
+
+In the Cloudflare dashboard, go to **My Profile > API Tokens** and select
+**Create Token**, then **Create Custom Token**. Give it exactly two permissions:
+
+| Group | Resource | Level |
+|---|---|---|
+| Zone | DNS | Edit |
+| Zone | Zone | Read |
+
+Under **Zone Resources** choose **Include > Specific zone >** your domain, so
+the token cannot touch anything else. Finish with **Continue to summary** and
+**Create Token**, then copy the token, which is shown only once.
+
+You also need two identifiers: open your zone's **Overview** page and copy the
+**Zone ID** and **Account ID** from the **API** panel on the right.
+
+#### Install and configure the plugin
+
+1. **System > Firmware > Plugins**, install `os-acme-client`. It is in
+   OPNsense's own repository, so no extra repository is needed.
+2. **Services > ACME Client > Settings**, tick **Enable Plugin** and click
+   **Apply**.
+3. **Services > ACME Client > Accounts**, click **+**:
+
+   | Field | Value |
+   |---|---|
+   | **Name** | e.g. `letsencrypt` |
+   | **E-Mail Address** | your address, used for expiry warnings |
+   | **ACME CA** | `Let's Encrypt [default]` |
+
+   Save, then use the **Register account** button on the row. Registration also
+   happens automatically on first issuance, but doing it now surfaces a bad
+   e-mail or CA choice before you spend a rate-limited issuance attempt. The
+   **Status** column should change to *OK (registered)*.
+4. **Services > ACME Client > Challenge Types**, click **+**:
+
+   | Field | Value |
+   |---|---|
+   | **Enabled** | ticked |
+   | **Name** | e.g. `cloudflare-dns` |
+   | **Challenge Type** | `DNS-01` (already the default) |
+   | **DNS Service** | `CloudFlare.com` |
+
+   Selecting the service reveals a **Cloudflare** section with two alternatives.
+   Fill in the **Restricted API Token** fields and leave the **Global API Key**
+   fields (**E-Mail** and **Key**) completely empty:
+
+   | Field | Value |
+   |---|---|
+   | **CF Account ID** | the Account ID from the zone Overview page |
+   | **CF API Token** | the token you created |
+   | **CF Zone ID (Optional)** | the Zone ID, which scopes this entry to the one domain |
+
+   Leave **DNS Sleep Time** at `0`. That makes the plugin poll *public* DNS every
+   10 seconds until the record appears. Any non-zero value switches it to a fixed
+   wait *and* to querying your local resolver, which on a firewall running Unbound
+   can answer differently from the internet and fail confusingly.
+5. **Services > ACME Client > Certificates**, click **+**:
+
+   | Field | Value |
+   |---|---|
+   | **Enabled** | ticked |
+   | **Common Name** | `vpn.example.com` |
+   | **ACME Account** | the account you created above |
+   | **Challenge Type** | `cloudflare-dns`, the challenge type you created above |
+
+   Leave **Alt Names** empty: a single host needs no SAN and no wildcard. Note
+   that this **Challenge Type** dropdown lists *your named entries*, not
+   `DNS-01`/`HTTP-01` again.
+6. On the certificate row, click **Issue or renew certificate**. Watch
+   **Services > ACME Client > Log Files > Acme Log** if it does not succeed; set
+   **Log Level** to `debug` on the Settings page first.
+
+The certificate then appears under **System > Trust > Certificates** as
+**vpn.example.com (ACME Client)**, which is the name to look for in 4.2. The
+same entry is updated in place on renewal, so the plugin keeps working.
+
+> **The A record is still your job.** DNS-01 proves you control the zone by
+> publishing a TXT record at `_acme-challenge.vpn.example.com`. It says nothing
+> about where `vpn.example.com` points, and the browser callback needs a public
+> **A** record aimed at the firewall's WAN address. If the zone sits behind
+> Cloudflare's proxy, set that record to **DNS only** (grey cloud): the
+> certificate issues perfectly either way, and only the callback breaks, which
+> makes it a genuinely confusing failure.
 
 ### 4.2 Fill in the settings
 
@@ -363,23 +494,7 @@ Click **Save**. The plugin now:
   instance** (active tunnels drop once, here),
 - starts the SSO service.
 
-### 4.3 Firewall rule for the callback port
-
-**Firewall > Rules**, select **WAN** in the interface selector again, and add a
-second rule:
-
-| Field | Value |
-|---|---|
-| Action | Pass |
-| Protocol | TCP |
-| Destination | WAN address |
-| Destination Port | 9443 |
-
-Restrict the source to the networks your users browse from if you can. The
-listener only serves OAuth2 endpoints, but there is no reason to expose it more
-widely than necessary.
-
-### 4.4 Check the status panel
+### 4.3 Check the status panel
 
 The top of the SSO settings page shows six rows. For a healthy setup:
 
@@ -394,44 +509,46 @@ The top of the SSO settings page shows six rows. For a healthy setup:
 
 The *Callback listener* row only proves the service is listening on the
 firewall itself; whether your users can reach it from outside is what the
-firewall rule in 4.3 and the DNS record are for.
+firewall rules in step 5 and the DNS record are for.
 
 If anything is off, see [Troubleshooting](#troubleshooting).
 
 ---
 
-## Step 5: Connect a client
+## Step 5: Firewall rules
 
-### 5.1 Create a client certificate
+Both ports are known by now, so open them in one pass.
 
-Each user needs their own client certificate, because the instance is set to
-**Verify Client Certificate: require** and the certificate is what
-authenticates the VPN client itself. Entra ID then decides *who the person is*
-on top of that.
+Go to **Firewall > Rules** and select **WAN** in the interface selector at the
+top of the page. Add two rules:
 
-Go to **System > Trust > Certificates**, click **Add**, and choose:
+| | Action | Protocol | Destination | Destination Port |
+|---|---|---|---|---|
+| **The VPN itself** | Pass | UDP | WAN address | 1194 |
+| **The browser callback** | Pass | TCP | WAN address | 9443 |
 
-| Field | Value |
-|---|---|
-| **Method** | `Create an internal Certificate` (the default) |
-| **Issuer** | the CA that issued your server certificate |
-| **Type** | `Client Certificate` |
-| **Common Name** | the user, e.g. `hans` (**required**, see below) |
+Restrict the source on the callback rule to the networks your users browse from
+if you can. It only serves OAuth2 endpoints, but there is no reason to expose it
+more widely than necessary.
 
-The **Common Name** is not optional. A certificate created without one gets a
-subject like `/C=NL`, and the export then fails with *"Client certificate not
-found"* because there is no name to write into the profile. After creating it,
-check the **Name** column in the certificate list: it must read `/CN=hans`, not
-just `/C=NL`.
+Then select **OpenVPN** in the same interface selector and check that its rules
+allow the traffic you want VPN clients to reach. Routing a network in **Local
+Network** tells clients the tunnel is the way there; it does not by itself
+permit the traffic.
 
-### 5.2 Export the profile
+---
+
+## Step 6: Connect a client
+
+### 6.1 Export the profile
 
 Go to **VPN > OpenVPN > Client Export** and select your instance.
 
 **Then change the certificate dropdown.** It defaults to *"(none) Exclude
 certificate from export"*, and exporting with that selected fails with
 *"Client certificate not found"*. Pick the client certificate you created in
-5.1, choose export type **File Only**, and download the `.ovpn`.
+2.1, `OpenVPN client`, choose export type **File Only**, and download the
+`.ovpn`.
 
 If your certificate is not in that dropdown, it was issued by a different CA
 than the instance uses. The list only offers certificates whose CA matches, so
@@ -450,7 +567,7 @@ OpenVPN's client-authentication requirement, and the identity check happens in
 the browser. If your client disconnects instead of waiting for the browser, add
 `auth-retry interact`.
 
-### 5.3 First login
+### 6.2 First login
 
 1. Import the profile into OpenVPN GUI, Tunnelblick or Viscosity.
 2. Connect.
@@ -488,7 +605,7 @@ configctl openvpnauthoauth2 details
 | `Options error: No client-side authentication method is specified` | The exported profile has no `<cert>`/`<key>` block, i.e. it was exported with the certificate excluded. Re-export with the certificate selected. |
 | Client hangs at *TLS key negotiation failed to occur within 60 seconds* | The client never reaches the server, so no browser is ever requested. Capture on the OpenVPN interface with filter `1194`. If you see the request arrive and a reply leave, but the reply's destination MAC differs from the sender's, pf's `reply-to` is forcing answers to the interface gateway; tick **Disable reply-to** on the rule (enable the advanced mode toggle in the rule dialog to see it), or set it globally in Firewall > Settings > Advanced. This bites when the client shares a subnet with a gateway-bearing interface. |
 | Browser never opens on connect | The client does not support browser authentication, or the profile disconnects too early (try adding `auth-retry interact`). |
-| Browser opens but cannot load the page | DNS for your base URL does not point at the firewall, or the WAN rule for TCP 9443 is missing. |
+| Browser opens but cannot load the page | DNS for your base URL does not point at the firewall, or the WAN rule for TCP 9443 is missing. If the zone is on Cloudflare, check the record is **DNS only** (grey cloud): proxied records resolve to Cloudflare's edge rather than your WAN, and the certificate still issues fine, so nothing else looks wrong. |
 | Certificate warning in the browser | The listener certificate is self-signed or does not match the hostname in the base URL. |
 | `AADSTS7000215` (invalid client secret) | Wrong secret, or the *Secret ID* was copied instead of the *Value*. |
 | `AADSTS50011` (redirect URI mismatch) | The redirect URI in Entra must be exactly your base URL plus `/oauth2/callback`. |
