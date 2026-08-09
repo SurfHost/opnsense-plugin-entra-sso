@@ -12,17 +12,6 @@
 {% if helpers.exists('OPNsense.OpenVPNAuthOAuth2.general.enabled') and OPNsense.OpenVPNAuthOAuth2.general.enabled == '1' %}
 {% set cfg = OPNsense.OpenVPNAuthOAuth2 %}
 {% set instance_uuid = cfg.general.vpnInstance|default('', true) %}
-{% set vpnid = namespace(value='') %}
-{% set has_instances = helpers.exists('OPNsense.OpenVPN') and OPNsense.OpenVPN is mapping
-       and helpers.exists('OPNsense.OpenVPN.Instances') and OPNsense.OpenVPN.Instances is mapping
-       and helpers.exists('OPNsense.OpenVPN.Instances.Instance') %}
-{% if has_instances %}
-{%   for instance in helpers.toList('OPNsense.OpenVPN.Instances.Instance') %}
-{%     if instance['@uuid'] == instance_uuid %}
-{%       set vpnid.value = instance.vpnid %}
-{%     endif %}
-{%   endfor %}
-{% endif %}
 {% set secret = cfg.http.secret|default('', true) %}
 {% set listen_addr = cfg.http.listenAddress|default('', true) %}
 {% set issuer = cfg.entra.issuer|default('', true) %}
