@@ -341,8 +341,11 @@ reserves tiers 1 to 3 for its own and its partners' repositories.
 > `configctl firmware resync`. The row should then read *(installed)*.
 
 After installation a new menu entry appears: **VPN > OpenVPN > SSO (OAuth2 /
-Entra ID)**. If you do not see it, force a reload with
-`service configd restart && service php_fpm restart`.
+Entra ID)**. If you do not see it, the menu cache is stale; clear it and reload:
+
+```bash
+rm -f /var/lib/php/tmp/opnsense_menu_cache.xml /var/lib/php/tmp/opnsense_acl_cache.json && service configd restart
+```
 
 ### 3.3 Updating and removing
 
@@ -643,7 +646,7 @@ configctl openvpnauthoauth2 details
 | Symptom | Cause and fix |
 |---|---|
 | `pkg update` gives a 404 | Your ABI directory does not exist yet in the repository. Compare `pkg config abi` (OPNsense 26.7 reports `FreeBSD:15:amd64`) with the directories published in the repository. |
-| Plugin menu entry missing after install | `service configd restart && service php_fpm restart` |
+| Plugin menu entry missing after install | The menu cache is stale. `rm -f /var/lib/php/tmp/opnsense_menu_cache.xml /var/lib/php/tmp/opnsense_acl_cache.json && service configd restart`. Do not use `service php_fpm restart`: OPNsense has no php-fpm, so it fails and, chained with `&&`, stops the restart running too. |
 | Status: **management-client-auth missing** | Someone re-saved the OpenVPN instance in the GUI, which silently drops the directive. Press **Save** on the SSO page to restore it. |
 | Status: **daemon not running** | Usually a bad tenant/client ID or an unreachable Entra endpoint. Check the log for the actual error. |
 | Status: **callback listener not listening** | The daemon failed to bind, often a certificate problem or a port already in use. Check the log and `sockstat -l \| grep 9443`. **Do not use port 9000**: OPNsense's php-fpm listens on `127.0.0.1:9000`, so binding the wildcard address there fails. |
