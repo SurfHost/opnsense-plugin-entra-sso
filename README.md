@@ -685,25 +685,63 @@ that were rejected, and the known limitations are in
 
 ### Development loop
 
-Test changes without building a package:
+Test changes without building a package. `rsync` is not in the FreeBSD base
+system, so this pulls the committed tree straight onto the box with `fetch` and
+`tar`, both of which are. Push your commits first: this deploys `main`, not your
+working tree.
 
-```sh
-rsync -av os-openvpn-auth-oauth2/src/ root@fw:/usr/local/
-ssh root@fw 'rm -rf /tmp/opnsense_mvc_cache*; service configd restart; service php_fpm restart'
+SSH in as root and drop out of tcsh first, because everything below is `sh`
+syntax and an unmatched glob is a fatal error in tcsh rather than a harmless
+no-op:
+
+```bash
+sh
 ```
+
+Fetch and unpack over `/usr/local`, which is exactly what the package does:
+
+```bash
+fetch -o /tmp/p.tgz https://codeload.github.com/SurfHost/opnsense-plugin-entra-sso/tar.gz/refs/heads/main && tar -xf /tmp/p.tgz -C /usr/local --strip-components 3 opnsense-plugin-entra-sso-main/os-openvpn-auth-oauth2/src && rm -f /tmp/p.tgz
+```
+
+Then clear the caches and reload. OPNsense compiles Volt views and caches model,
+menu and ACL data, so a stale cache is the usual reason an edit appears to do
+nothing:
+
+```bash
+find /var/lib/php/cache -name '*.php' -delete; find /var/lib/php/tmp -name 'mdl_cache_*.json' -delete; rm -f /var/lib/php/tmp/opnsense_menu_cache.xml /var/lib/php/tmp/opnsense_acl_cache.json; service configd restart
+```
+
+What each change needs after that:
+
+| Changed | Also required |
+|---|---|
+| model, view, controller, form | nothing further |
+| `status.py` | nothing, configd runs it fresh per call |
+| `supervisor.py` | `configctl openvpnauthoauth2 restart` |
+| anything under `service/templates` | `configctl template reload OPNsense/OpenVPNAuthOAuth2`, then restart |
+| `actions.d` | the `configd` restart above |
 
 Useful checks on the box:
 
-```sh
-configctl template reload OPNsense/OpenVPNAuthOAuth2
-configctl openvpnauthoauth2 start
+```bash
 configctl openvpnauthoauth2 details
-grep management-client-auth /var/etc/openvpn/instance-*.conf
 ```
 
-> **Shell note:** root's login shell on OPNsense is tcsh, which does not
-> understand `$(...)` command substitution or `VAR=value command` prefixes.
-> Run `sh` once before pasting the commands in this section.
+```bash
+find /var/etc/openvpn -name 'instance-*.conf' -exec grep -H -e management-client-auth -e auth-user-pass-optional {} +
+```
+
+> **Shell note:** root's login shell is tcsh, which has no `$(...)` substitution
+> and no `VAR=value command` prefix, and which treats a glob matching nothing as
+> a hard error that abandons the rest of the line. Run `sh` first, as above. Note
+> that `ssh root@fw '...'` still runs the remote command through tcsh no matter
+> what your local shell is, so wrap remote one-liners as `ssh root@fw sh -c '...'`.
+
+> **Do not use `service php_fpm restart`.** OPNsense has no php-fpm at all: the
+> GUI is lighttpd with mod_fastcgi spawning `php-cgi`. The command fails, and in
+> a chained one-liner it takes the rest of the line with it. If you ever do need
+> to bounce the GUI, it is `configctl webgui restart`.
 
 ### The daemon dependency
 
