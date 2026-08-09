@@ -231,13 +231,17 @@ def main():
     }
 
     if enabled:
-        # the GUI path holds the pass-through proxy, which expects frontend
-        # connections, so probing it is safe and tells corpses from listeners
-        gui = socket_alive(conf.get('gui_socket', ''))
-        swapped = is_socket(conf.get('swapped_socket', ''))
         if passthrough:
+            # the GUI path holds the pass-through proxy, which expects
+            # frontend connections, so probing it is safe and tells corpses
+            # from listeners
+            gui = socket_alive(conf.get('gui_socket', ''))
+            swapped = is_socket(conf.get('swapped_socket', ''))
             result['swap'] = 'active' if (swapped and gui and result['daemon']) else 'inactive'
         else:
+            # exclusive mode: the GUI path is the real management socket with
+            # the daemon as its single client, and a connect probe would
+            # disturb that session, so it must not be touched here
             result['swap'] = 'disabled'
         result['listener'] = listener_up(
             conf.get('listen_address', ''),
@@ -248,8 +252,15 @@ def main():
             conf.get('listen_address', '') or '0.0.0.0', conf.get('listen_port', ''))
         listeners = port_listeners(conf.get('listen_port', ''))
         result['listen_binds'] = [e['address'] for e in listeners]
-        foreign = sorted({e['command'] for e in listeners
-                          if not DAEMON_NAME.startswith(e['command'].rstrip('-'))})
+
+        def ours(command):
+            # sockstat truncates COMMAND, so match on a prefix, but demand
+            # enough of one that plain 'openvpn' (or anything shorter) still
+            # reads as a foreign process instead of passing as our daemon
+            prefix = command.rstrip('-')
+            return len(prefix) >= 8 and DAEMON_NAME.startswith(prefix)
+
+        foreign = sorted({e['command'] for e in listeners if not ours(e['command'])})
         result['listen_conflict'] = foreign
         result['client_auth_flag'] = client_auth_flag(conf.get('instance_uuid', ''))
         result['base_url'] = base_url_status(
