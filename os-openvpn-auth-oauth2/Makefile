@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 
 PLUGIN_NAME=		openvpn-auth-oauth2
-PLUGIN_VERSION=		1.2
+PLUGIN_VERSION=		1.3
 PLUGIN_COMMENT=		OpenVPN SSO via OpenID Connect (Microsoft Entra ID and others)
 PLUGIN_DEPENDS=		openvpn-auth-oauth2
 PLUGIN_LICENSE=		MIT
