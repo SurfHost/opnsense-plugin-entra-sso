@@ -240,6 +240,21 @@ meet them.
 |---|---|
 | **Local Network** | the networks clients should reach, e.g. `192.168.1.0/24` |
 
+**Keep alive**
+
+These two fields only appear after you enable **advanced mode**, the toggle at
+the top of the dialog:
+
+| Field | Value |
+|---|---|
+| **Keep alive interval** | `10` |
+| **Keep alive timeout** | `60` |
+
+Do not skip them. Without keepalive the server sends nothing on an idle
+tunnel, the NAT mapping between client and firewall expires, and the tunnel
+silently dies and reconnects about every two idle minutes. Both fields must be
+set together, and the timeout must be at least twice the interval.
+
 Click **Save**. The instance is running immediately, because **Enabled** is part
 of the form; there is no separate step to switch it on afterwards.
 
@@ -289,6 +304,9 @@ Instances** and confirm:
       either empty or non-zero
 - [ ] **Verify Client Certificate** is `require`, and your users have client
       certificates
+- [ ] **Keep alive interval** and **Keep alive timeout** are set (e.g. `10` and
+      `60`, visible in advanced mode), so an idle tunnel does not die to NAT
+      timeouts
 
 Nothing else changes yet; existing clients keep working. Be aware the cutover
 is instance-wide: once you save the plugin settings in step 4, every client of
@@ -691,7 +709,8 @@ configctl openvpnauthoauth2 details
 | `Options error: No client-side authentication method is specified` | The exported profile has no `<cert>`/`<key>` block, i.e. it was exported with the certificate excluded. Re-export with the certificate selected. |
 | Server log: **Auth Username/Password was not provided by peer**, client times out, no browser | The instance is missing `auth-user-pass-optional`. `management-client-auth` puts OpenVPN into username/password mode, so a certificate-only profile is rejected during TLS negotiation, before the SSO daemon is consulted. Press **Save** on the SSO page to add both directives, or check the *OpenVPN instance directives* status row. |
 | Client log: **DEPRECATED OPTION: --persist-key option ignored** | Cosmetic. OPNsense's exporter writes `persist-key` unconditionally and offers no setting to suppress it; OpenVPN 2.7 ignores the option. Delete the line from the `.ovpn` if the red text bothers you. |
-| Server log: **WARNING: --keepalive option is missing from server config** | Harmless for authentication, but worth fixing: with no keepalive an idle UDP tunnel sends nothing and dies silently when the client's NAT mapping expires. Enable **advanced mode** on the instance and set **Keep alive interval** `10` and **Keep alive timeout** `60`. Both must be set together, and the timeout must be at least twice the interval. |
+| Idle tunnel drops and reconnects every ~2 minutes; client log shows **Inactivity timeout (--ping-restart)**, often with **AUTH_FAILED (auth-token)** on the first retry | No keepalive on the instance, so an idle tunnel goes silent and the client's NAT mapping expires (on Windows the read error *"De opgegeven netwerknaam is niet langer beschikbaar" (code=64)* is that mapping already gone). Fix as in the next row. The token failure is a side effect of the restart; the SSO daemon re-approves silently, which is why no browser opens. |
+| Server log: **WARNING: --keepalive option is missing from server config** | Harmless for authentication, but worth fixing: with no keepalive an idle UDP tunnel sends nothing and dies silently when the client's NAT mapping expires. Enable **advanced mode** on the instance and set **Keep alive interval** `10` and **Keep alive timeout** `60` (see step 2.2). Both must be set together, and the timeout must be at least twice the interval. If SSO is already live, re-saving the instance drops the plugin's directives, so press **Save** on the SSO page afterwards. |
 | Client hangs at *TLS key negotiation failed to occur within 60 seconds* | The client never reaches the server, so no browser is ever requested. Capture on the OpenVPN interface with filter `1194`. If you see the request arrive and a reply leave, but the reply's destination MAC differs from the sender's, pf's `reply-to` is forcing answers to the interface gateway; tick **Disable reply-to** on the rule (enable the advanced mode toggle in the rule dialog to see it), or set it globally in Firewall > Settings > Advanced. This bites when the client shares a subnet with a gateway-bearing interface. |
 | Browser never opens on connect | The client does not support browser authentication, or the profile disconnects too early (try adding `auth-retry interact`). |
 | Browser opens but cannot load the page | DNS for your base URL does not point at the firewall, or the WAN rule for TCP 9443 is missing. If the zone is on Cloudflare, check the record is **DNS only** (grey cloud): proxied records resolve to Cloudflare's edge rather than your WAN, and the certificate still issues fine, so nothing else looks wrong. |
