@@ -111,5 +111,7 @@ echo "==> plugin version according to the published repository:"
     | grep -o '"name":"os-openvpn-auth-oauth2","origin":"[^"]*","version":"[^"]*"' ) \
     || echo '    (not visible yet; Pages deploys lag a minute or two, re-run the fetch to re-check)'
 
+# double quotes on purpose: the command is pasted into cmd.exe on the
+# workstation, and cmd does not treat single quotes as quoting
 echo "==> done. Remaining, from the workstation:"
-echo "      gh release create ${TAG} --title 'os-openvpn-auth-oauth2 ${VERSION}' --notes-file notes.md"
+echo "      gh release create ${TAG} --title \"os-openvpn-auth-oauth2 ${VERSION}\" --notes-file notes.md"

@@ -163,7 +163,7 @@ if ! command -v gh >/dev/null 2>&1; then
     workstation that has gh, after pushing the tag:
 
       git push origin ${TAG}
-      gh release create ${TAG} --title '${TITLE}' --notes-file <notes.md>
+      gh release create ${TAG} --title "${TITLE}" --notes-file <notes.md>
 
 EOF
     exit 0
@@ -195,7 +195,7 @@ else
 
     or create it now with:
 
-      gh release create ${TAG} --title '${TITLE}' --notes-file <notes.md>
+      gh release create ${TAG} --title "${TITLE}" --notes-file <notes.md>
 
 EOF
 fi
