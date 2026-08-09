@@ -26,7 +26,11 @@ SUPERVISOR_CONF = '/usr/local/etc/openvpn-auth-oauth2/supervisor.conf'
 PIDFILE = '/var/run/openvpnauthoauth2.child.pid'
 DAEMON_NAME = 'openvpn-auth-oauth2'
 CONFIG_XML = '/conf/config.xml'
-REQUIRED_FLAG = 'management-client-auth'
+# both are needed: management-client-auth defers the connect decision to the
+# daemon, and auth-user-pass-optional stops OpenVPN demanding credentials a
+# certificate-only profile never sends (which would kill the session before
+# the daemon is ever consulted). Keep in sync with OpenVPNAuthOAuth2.php.
+REQUIRED_FLAGS = ('management-client-auth', 'auth-user-pass-optional')
 
 
 def read_conf(path=SUPERVISOR_CONF):
@@ -195,10 +199,11 @@ def base_url_status(base_url, listen_port, tls_enabled):
 
 
 def client_auth_flag(instance_uuid, config_xml=CONFIG_XML):
-    """Report whether the selected OpenVPN instance carries the
-    'management-client-auth' directive. Core's various_flags field is a
-    closed OptionField that does not offer it, so this is advisory: without
-    the flag OpenVPN never defers client connects and SSO stays silent."""
+    """Report whether the selected OpenVPN instance carries every directive in
+    REQUIRED_FLAGS. Core's various_flags field is a closed OptionField that
+    offers none of them, so this is advisory: without them OpenVPN either
+    never defers client connects, or rejects the client for not sending a
+    password, and SSO stays silent either way."""
     if not instance_uuid:
         return None
     try:
@@ -208,8 +213,8 @@ def client_auth_flag(instance_uuid, config_xml=CONFIG_XML):
     for instance in root.iter('Instance'):
         if instance.get('uuid') != instance_uuid:
             continue
-        flags = (instance.findtext('various_flags') or '').split(',')
-        return REQUIRED_FLAG in [flag.strip() for flag in flags]
+        flags = {flag.strip() for flag in (instance.findtext('various_flags') or '').split(',')}
+        return all(required in flags for required in REQUIRED_FLAGS)
     return None
 
 

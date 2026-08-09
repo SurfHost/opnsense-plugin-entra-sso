@@ -14,26 +14,37 @@ use OPNsense\Core\Config;
 class OpenVPNAuthOAuth2 extends BaseModel
 {
     /**
-     * The directive OpenVPN needs before it defers client connects to a
+     * The directives OpenVPN needs before it defers client connects to a
      * management client. Core's various_flags is a closed OptionField that
-     * does not offer it, so the GUI cannot set it and silently drops it when
+     * offers neither, so the GUI cannot set them and silently drops them when
      * the instance is saved.
+     *
+     * 'management-client-auth' hands the connect decision to the SSO daemon.
+     *
+     * 'auth-user-pass-optional' is not optional despite the name: enabling
+     * management-client-auth puts OpenVPN into username/password mode, so
+     * without it the server demands credentials that a certificate-only
+     * profile never sends and kills the session during TLS negotiation with
+     * "Auth Username/Password was not provided by peer". That happens before
+     * the management interface is consulted, so the daemon never sees the
+     * client, never issues a WEB_AUTH url, and no browser ever opens.
      */
-    public const REQUIRED_FLAG = 'management-client-auth';
+    public const REQUIRED_FLAGS = ['management-client-auth', 'auth-user-pass-optional'];
 
     /**
-     * Add REQUIRED_FLAG to the selected instance's various_flags directly in
-     * config.xml, bypassing the closed OptionField the GUI enforces. The
-     * OpenVPN config generator emits various_flags entries verbatim as bare
-     * directives, so the value takes effect on the next instance restart.
+     * Add every REQUIRED_FLAGS entry to the selected instance's various_flags
+     * directly in config.xml, bypassing the closed OptionField the GUI
+     * enforces. The OpenVPN config generator emits various_flags entries
+     * verbatim as bare directives, so the values take effect on the next
+     * instance restart.
      *
      * Deliberately writing into core's configuration section: there is no
-     * supported injection point until core accepts the directive (see
+     * supported injection point until core accepts the directives (see
      * docs/INVESTIGATION.md). Guarded by a model toggle.
      *
-     * @return bool|null true when the flag was added (caller must restart the
-     *                   instance), false when already present, null when not
-     *                   applicable
+     * @return bool|null true when at least one flag was added (caller must
+     *                   restart the instance), false when all were already
+     *                   present, null when not applicable
      */
     public function ensureClientAuthFlag()
     {
@@ -61,10 +72,11 @@ class OpenVPNAuthOAuth2 extends BaseModel
                 array_map('trim', explode(',', (string)$instance->various_flags)),
                 'strlen'
             ));
-            if (in_array(self::REQUIRED_FLAG, $flags, true)) {
+            $missing = array_diff(self::REQUIRED_FLAGS, $flags);
+            if ($missing === []) {
                 return false;
             }
-            $flags[] = self::REQUIRED_FLAG;
+            $flags = array_merge($flags, array_values($missing));
             if (isset($instance->various_flags)) {
                 $instance->various_flags = implode(',', $flags);
             } else {

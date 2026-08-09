@@ -43,16 +43,6 @@ silent while the auth token is valid.
 Two ports must be reachable from the internet: the OpenVPN port itself
 (UDP 1194 by default) and the browser callback port (TCP 9443 by default).
 
-> **Network sanity.** Give the firewall one subnet per interface, and test with a
-> client that is *outside* it. Two interfaces sharing a subnet cause replies to
-> leave by the wrong path, and a client on the same subnet as the VPN interface
-> hits pf's `reply-to` behaviour. Both produce a VPN that hangs at TLS
-> negotiation while every service on the firewall looks perfectly healthy.
-
-> **Note on clients:** NetworkManager on Linux does not support browser
-> authentication and cannot be used. OpenVPN Connect v3 works only partially.
-> Use one of the clients listed above.
-
 ---
 
 ## Step 1: Register the application in Entra ID
@@ -196,16 +186,18 @@ Create three things under **System > Trust**, in this order.
 | **Description** | `OpenVPN client` |
 | **Type** | `Client Certificate` |
 | **Issuer** | `OpenVPN` |
-| **Common Name** | the user, e.g. `hans` |
+| **Common Name** | `vpn` |
 
 The **Common Name** is not optional on either certificate. A certificate created
 without one gets a subject like `/C=NL`, and the client export in step 6 then
 fails with *"Client certificate not found"* because there is no name to write
 into the profile. After creating them, check the **Name** column in the
-certificate list: it must read `/CN=hans`, not just `/C=NL`.
+certificate list: it must read `/CN=vpn`, not just `/C=NL`.
 
-One client certificate per user. Repeat the third step for everyone who needs
-the VPN, changing the **Description** and **Common Name** each time.
+If you would rather give each person their own certificate, repeat the third
+step per user with a **Description** and **Common Name** of their own. Entra ID
+is what identifies the person either way; the client certificate only proves the
+device is allowed to reach the tunnel at all.
 
 ### 2.2 Create the instance
 
@@ -329,14 +321,24 @@ installed.
 
 ### 3.2 Install the plugin
 
-In the GUI, go to **System > Firmware > Plugins**, search for
-`os-openvpn-auth-oauth2` and click **+** to install.
+Install from the GUI, not from the shell. Go to **System > Firmware > Plugins**
+and first click **Click to view the community plugins.**, because plugins from a
+third-party repository are hidden until you do. Type `os-openvpn-auth-oauth2`
+in the **Name** box, click the **+** on its row, and confirm the **Third party
+software** dialog with **Install**.
 
-Or from the shell:
+The row then reads *os-openvpn-auth-oauth2 (installed)*. **Tier** shows `4` and
+**Repository** shows `surfhost`; that is correct and permanent, because OPNsense
+reserves tiers 1 to 3 for its own and its partners' repositories.
 
-```sh
-pkg install os-openvpn-auth-oauth2
-```
+> **Do not install it with `pkg install`.** That puts the files in place but
+> never registers the plugin in OPNsense's configuration, so the Plugins tab
+> marks it **(misconfigured)**. It runs fine, but OPNsense rebuilds the plugin
+> set from that registration list, so a plugin missing from it is *not*
+> reinstalled after a configuration restore or a firmware sync. If you already
+> did it, repair it once under **System > Firmware > Status** with **Resolve
+> plugin conflicts > Reset all local conflicts**, or from the shell with
+> `configctl firmware resync`. The row should then read *(installed)*.
 
 After installation a new menu entry appears: **VPN > OpenVPN > SSO (OAuth2 /
 Entra ID)**. If you do not see it, force a reload with
@@ -542,17 +544,38 @@ permit the traffic.
 
 ### 6.1 Export the profile
 
-Go to **VPN > OpenVPN > Client Export** and select your instance.
+Go to **VPN > OpenVPN > Client Export** and fill in the form at the top:
 
-**Then change the certificate dropdown.** It defaults to *"(none) Exclude
-certificate from export"*, and exporting with that selected fails with
-*"Client certificate not found"*. Pick the client certificate you created in
-2.1, `OpenVPN client`, choose export type **File Only**, and download the
-`.ovpn`.
+| Field | Value |
+|---|---|
+| **Remote Access Server** | your instance, e.g. `OpenVPN SSO udp:1194` |
+| **Export type** | `File Only` |
+| **Hostname** | `vpn.example.com` |
+| **Port** | `1194` |
 
-If your certificate is not in that dropdown, it was issued by a different CA
-than the instance uses. The list only offers certificates whose CA matches, so
-recreate it under the correct CA.
+**Overwrite the Hostname.** It is pre-filled with the firewall's own interface
+address, and accepting that ships the raw WAN IP in everyone's profile. It also
+has to match the name on your server certificate, or *Validate server subject*
+rejects the connection. Do not append the port here; that is the **Port** field,
+and `vpn.example.com:1194` is refused as invalid.
+
+Leave **Validate server subject** ticked. Leave **Windows Certificate System
+Store** and **Enable static challenge (OTP)** unticked: the first omits the
+certificate and key from the profile, and the second injects an OTP prompt that
+breaks a certificate-only profile.
+
+Then scroll to the **Accounts / certificates** table at the bottom. There is no
+dropdown: each certificate is a row, and you download by clicking the small
+cloud-with-arrow icon at the right of the row you want. Click it on the
+**OpenVPN client** row.
+
+The other two rows are traps. *(none) Exclude certificate from export* produces
+a profile with no `<cert>` or `<key>` at all, silently, and *OpenVPN server*
+fails with *"Certificate does not belong to server CA"*, because the table lists
+every certificate signed by the instance's CA rather than only client ones.
+
+> Clicking the download icon also saves the form as that server's export
+> presets. There is no separate Save button and no confirmation.
 
 Open the file in a text editor and confirm it contains a `<cert>` block and a
 `<key>` block. Those are the client's authentication method, and without them
@@ -562,15 +585,39 @@ OpenVPN refuses to start with:
 Options error: No client-side authentication method is specified.
 ```
 
-The profile does **not** need `auth-user-pass`: the certificate satisfies
-OpenVPN's client-authentication requirement, and the identity check happens in
-the browser. If your client disconnects instead of waiting for the browser, add
-`auth-retry interact`.
+A working profile looks like this. There is no `proto` line for UDP: the
+protocol rides on the `remote` line.
+
+```
+dev tun
+persist-tun
+persist-key
+client
+resolv-retry infinite
+remote vpn.example.com 1194 udp
+lport 0
+verify-x509-name "..." subject
+remote-cert-tls server
+<ca>...</ca>
+<cert>...</cert>
+<key>...</key>
+```
+
+The profile carries **no** `auth-user-pass` line, and that is correct here. The
+plugin puts the matching `auth-user-pass-optional` directive on the server, so
+OpenVPN accepts a certificate-only client and hands the decision to the SSO
+daemon. If the *OpenVPN instance directives* row on the SSO page does not read
+`present`, press **Save** there before connecting: without that directive the
+server rejects the client during TLS negotiation with *"Auth Username/Password
+was not provided by peer"*, and no browser ever opens.
 
 ### 6.2 First login
 
 1. Import the profile into OpenVPN GUI, Tunnelblick or Viscosity.
-2. Connect.
+2. Connect. Start it from the **OpenVPN GUI**, not `openvpn.exe` from a console
+   or as a bare service: the GUI is what advertises browser-auth support and
+   what opens the window, and the daemon refuses clients that do not advertise
+   it.
 3. Your default browser opens at the Microsoft sign-in page.
 4. Sign in and complete MFA if your tenant requires it.
 5. The browser shows a success page, and the tunnel comes up.
@@ -603,6 +650,9 @@ configctl openvpnauthoauth2 details
 | Export fails with **Client certificate not found** | Either the *"(none) Exclude certificate from export"* row was used, or the certificate has no Common Name (its **Name** column reads `/C=NL` rather than `/CN=...`). Recreate it with a Common Name. |
 | Export fails with **Certificate does not belong to server CA** | You picked a *server* certificate. Export only accepts client certificates issued by the instance's CA. |
 | `Options error: No client-side authentication method is specified` | The exported profile has no `<cert>`/`<key>` block, i.e. it was exported with the certificate excluded. Re-export with the certificate selected. |
+| Server log: **Auth Username/Password was not provided by peer**, client times out, no browser | The instance is missing `auth-user-pass-optional`. `management-client-auth` puts OpenVPN into username/password mode, so a certificate-only profile is rejected during TLS negotiation, before the SSO daemon is consulted. Press **Save** on the SSO page to add both directives, or check the *OpenVPN instance directives* status row. |
+| Client log: **DEPRECATED OPTION: --persist-key option ignored** | Cosmetic. OPNsense's exporter writes `persist-key` unconditionally and offers no setting to suppress it; OpenVPN 2.7 ignores the option. Delete the line from the `.ovpn` if the red text bothers you. |
+| Server log: **WARNING: --keepalive option is missing from server config** | Harmless for authentication, but worth fixing: with no keepalive an idle UDP tunnel sends nothing and dies silently when the client's NAT mapping expires. Enable **advanced mode** on the instance and set **Keep alive interval** `10` and **Keep alive timeout** `60`. Both must be set together, and the timeout must be at least twice the interval. |
 | Client hangs at *TLS key negotiation failed to occur within 60 seconds* | The client never reaches the server, so no browser is ever requested. Capture on the OpenVPN interface with filter `1194`. If you see the request arrive and a reply leave, but the reply's destination MAC differs from the sender's, pf's `reply-to` is forcing answers to the interface gateway; tick **Disable reply-to** on the rule (enable the advanced mode toggle in the rule dialog to see it), or set it globally in Firewall > Settings > Advanced. This bites when the client shares a subnet with a gateway-bearing interface. |
 | Browser never opens on connect | The client does not support browser authentication, or the profile disconnects too early (try adding `auth-retry interact`). |
 | Browser opens but cannot load the page | DNS for your base URL does not point at the firewall, or the WAN rule for TCP 9443 is missing. If the zone is on Cloudflare, check the record is **DNS only** (grey cloud): proxied records resolve to Cloudflare's edge rather than your WAN, and the certificate still issues fine, so nothing else looks wrong. |

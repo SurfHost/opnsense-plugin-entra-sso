@@ -153,7 +153,7 @@
                     <td id="status_baseurl"></td>
                 </tr>
                 <tr>
-                    <td>{{ lang._("OpenVPN 'management-client-auth'") }}</td>
+                    <td>{{ lang._('OpenVPN instance directives') }}</td>
                     <td id="status_client_auth"></td>
                 </tr>
             </tbody>
@@ -164,7 +164,7 @@
             {{ lang._("The listener row only proves the service is listening on this firewall. Reachability from the internet additionally needs a WAN firewall rule for the listen port, and public DNS pointing at this firewall. Test it from outside your own network: connecting to the public address from inside requires NAT reflection. The daemon serves only /oauth2/... paths, so a 404 on the root URL means it is working.") }}
         </div>
         <div id="client_auth_warning" class="alert alert-warning" style="display:none; max-width: 60em;">
-            {{ lang._("The selected OpenVPN instance does not carry the 'management-client-auth' directive, so OpenVPN never asks this service to authorize client connects and SSO stays silent. The instance's Options field does not offer this directive and drops it whenever that instance is saved. Press Save below to add it back and restart the instance (this drops its active tunnels), or disable 'Repair OpenVPN instance flag' under Advanced to manage the directive yourself.") }}
+            {{ lang._("The selected OpenVPN instance is missing 'management-client-auth' or 'auth-user-pass-optional'. Without the first, OpenVPN never asks this service to authorize client connects. Without the second, OpenVPN demands a username and password that a certificate-only profile never sends, and drops the client during TLS negotiation with 'Auth Username/Password was not provided by peer' before this service is ever consulted, so no browser opens. The instance's Options field offers neither directive and drops them whenever that instance is saved. Press Save below to add them back and restart the instance (this drops its active tunnels), or disable 'Repair OpenVPN instance flag' under Advanced to manage them yourself.") }}
         </div>
     </div>
 </div>
