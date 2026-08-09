@@ -545,10 +545,37 @@ Restrict the source on the callback rule to the networks your users browse from
 if you can. It only serves OAuth2 endpoints, but there is no reason to expose it
 more widely than necessary.
 
-Then select **OpenVPN** in the same interface selector and check that its rules
-allow the traffic you want VPN clients to reach. Routing a network in **Local
-Network** tells clients the tunnel is the way there; it does not by itself
-permit the traffic.
+Then select **OpenVPN** in the same interface selector. This is the interface
+group that carries the rules for every OpenVPN instance, and it starts out
+empty. OPNsense blocks what no rule passes, so until you add one here an
+authenticated client gets a tunnel but reaches nothing through it. Add one
+rule:
+
+| Field | Value |
+|---|---|
+| **Action** | Pass |
+| **TCP/IP Version** | IPv4 |
+| **Protocol** | any |
+| **Source** | the tunnel network from step 2, e.g. `10.10.10.0/24` |
+| **Destination** | `LAN net` |
+
+`LAN net` covers the single-LAN case and matches the **Local Network** example
+from step 2. If you route several networks through the tunnel, put them in an
+alias or add a rule per network. If you selected **Redirect gateway** in step
+2, set **Destination** to `any` instead, because the clients' internet traffic
+now flows through this interface too.
+
+Routing and filtering are separate decisions: **Local Network** on the
+instance tells clients the tunnel is the way to reach a network, and this rule
+is what actually permits the traffic once it arrives. Tighten **Protocol**,
+**Source** and **Destination** here when not every client should reach
+everything; identity-based per-user rules are not possible on this hop, since
+the firewall sees only tunnel IP addresses.
+
+One full-tunnel pitfall: if redirected clients reach the LAN but not the
+internet, check **Firewall > NAT > Outbound**. The default automatic mode
+translates the tunnel network on its way out; in manual mode you must add an
+outbound NAT rule for `10.10.10.0/24` on WAN yourself.
 
 ---
 
