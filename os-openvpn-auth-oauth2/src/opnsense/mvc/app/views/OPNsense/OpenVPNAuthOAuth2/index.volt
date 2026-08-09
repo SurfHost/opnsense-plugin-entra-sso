@@ -64,8 +64,8 @@
                 if (enabled && conflict.length > 0) {
                     $("#port_conflict_warning")
                         .text("{{ lang._('This port is also held by another process:') }} " +
-                              conflict.join(', ') +
-                              "{{ lang._(' . Pick a free port; OPNsense uses 9000 for php-fpm.') }}")
+                              conflict.join(', ') + ". " +
+                              "{{ lang._('Pick a free port; the web GUI PHP backend already uses 9000.') }}")
                         .show();
                 } else {
                     $("#port_conflict_warning").hide();

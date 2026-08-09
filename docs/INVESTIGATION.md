@@ -147,7 +147,7 @@ Because core hardcodes the socket path, the plugin's supervisor performs a
    `openvpn.pass-through.address = unix:///var/etc/openvpn/instance-{uuid}.sock`.
 4. The GUI reconnects to the original path and lands on the pass-through
    listener, transparently.
-5. Supervisor watches the inode of `S` (~5 s poll). When OPNsense restarts the
+5. Supervisor watches the inode of `S` (1 s poll). When OPNsense restarts the
    instance, OpenVPN re-binds `S` (clobbering the pass-through socket file); the
    supervisor detects the new inode and re-runs steps 2-3. Self-healing, no core
    patch, no core file overwritten.

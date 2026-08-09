@@ -43,6 +43,9 @@ silent while the auth token is valid.
 Two ports must be reachable from the internet: the OpenVPN port itself
 (UDP 1194 by default) and the browser callback port (TCP 9443 by default).
 
+The plugin protects **one** OpenVPN instance per firewall in this version.
+Other instances keep working normally, they just do not get SSO.
+
 ---
 
 ## Step 1: Register the application in Entra ID
@@ -350,10 +353,16 @@ rm -f /var/lib/php/tmp/opnsense_menu_cache.xml /var/lib/php/tmp/opnsense_acl_cac
 ### 3.3 Updating and removing
 
 Updates arrive through the normal **System > Firmware > Updates** flow once the
-repository is added. To remove everything:
+repository is added.
+
+Remove the plugin the same way it was installed: on **System > Firmware >
+Plugins**, use the remove action on its row. That also removes it from
+OPNsense's plugin registration, which a bare `pkg delete` would leave behind,
+the mirror image of the warning above. Then drop the daemon package and the
+repository:
 
 ```sh
-pkg delete os-openvpn-auth-oauth2
+pkg delete openvpn-auth-oauth2
 rm /usr/local/etc/pkg/repos/surfhost.conf
 pkg update
 ```
@@ -510,7 +519,7 @@ The top of the SSO settings page shows six rows. For a healthy setup:
 | Management socket swap | active |
 | Callback listener | listening |
 | Public base URL | consistent |
-| OpenVPN 'management-client-auth' | present |
+| OpenVPN instance directives | present |
 
 The *Callback listener* row only proves the service is listening on the
 firewall itself; whether your users can reach it from outside is what the
@@ -649,7 +658,7 @@ configctl openvpnauthoauth2 details
 | Plugin menu entry missing after install | The menu cache is stale. `rm -f /var/lib/php/tmp/opnsense_menu_cache.xml /var/lib/php/tmp/opnsense_acl_cache.json && service configd restart`. Do not use `service php_fpm restart`: OPNsense has no php-fpm, so it fails and, chained with `&&`, stops the restart running too. |
 | Status: **management-client-auth missing** | Someone re-saved the OpenVPN instance in the GUI, which silently drops the directive. Press **Save** on the SSO page to restore it. |
 | Status: **daemon not running** | Usually a bad tenant/client ID or an unreachable Entra endpoint. Check the log for the actual error. |
-| Status: **callback listener not listening** | The daemon failed to bind, often a certificate problem or a port already in use. Check the log and `sockstat -l \| grep 9443`. **Do not use port 9000**: OPNsense's php-fpm listens on `127.0.0.1:9000`, so binding the wildcard address there fails. |
+| Status: **callback listener not listening** | The daemon failed to bind, often a certificate problem or a port already in use. Check the log and `sockstat -l \| grep 9443`. **Do not use port 9000**: the web GUI's PHP backend (php-cgi, spawned by lighttpd) listens on `127.0.0.1:9000`, so binding the wildcard address there fails. |
 | Export fails with **Client certificate not found** | Either the *"(none) Exclude certificate from export"* row was used, or the certificate has no Common Name (its **Name** column reads `/C=NL` rather than `/CN=...`). Recreate it with a Common Name. |
 | Export fails with **Certificate does not belong to server CA** | You picked a *server* certificate. Export only accepts client certificates issued by the instance's CA. |
 | `Options error: No client-side authentication method is specified` | The exported profile has no `<cert>`/`<key>` block, i.e. it was exported with the certificate excluded. Re-export with the certificate selected. |

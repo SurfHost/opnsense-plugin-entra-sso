@@ -73,9 +73,10 @@
                 <Required>Y</Required>
             </listenAddress>
             <listenPort type="PortField">
-                <!-- upstream defaults to 9000, but OPNsense's php-fpm already
-                     listens on 127.0.0.1:9000, so binding the wildcard address
-                     there fails with EADDRINUSE -->
+                <!-- upstream defaults to 9000, but the web GUI's PHP backend
+                     (php-cgi, spawned by lighttpd) already listens on
+                     127.0.0.1:9000, so binding the wildcard address there
+                     fails with EADDRINUSE -->
                 <Default>9443</Default>
                 <Required>Y</Required>
             </listenPort>
