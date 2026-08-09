@@ -173,6 +173,20 @@ status/kill for that one instance (documented limitation).
   combined with a zero Renegotiate time ("A token lifetime requires a non zero
   Renegotiate time"); keep the default `3600`. Renegotiation is satisfied
   silently by the auth token, so users aren't re-prompted mid-session.
+
+  > ⚠️ **Correction (verified on hardware, Aug 2026):** the native field is
+  > *not* usable here. Core emits `auth-gen-token <lifetime>` without
+  > `external-auth`, so OpenVPN judges the token itself and rejects it at the
+  > first renegotiation ("Username/auth-token authentication failed for
+  > username ''"), forcing a reconnect with a browser round-trip roughly once
+  > an hour. Upstream's non-interactive refresh needs
+  > `auth-gen-token <lifetime> external-auth` on the server and
+  > `oauth2.refresh.use-session-id: true` in the daemon (the daemon logs
+  > "detected client session ID but not configured to use it" otherwise).
+  > The plugin therefore injects the full token directive itself, next to
+  > `management-client-auth` in `various_flags` (core emits entries verbatim,
+  > spaces included), and requires the native field to stay **empty**, since
+  > two `auth-gen-token` lines stop the instance from starting.
 - Server runs OpenVPN ≥ 2.6.2, satisfied by OPNsense 26.7.
 
 ### Blocker: `management-client-auth` is not settable in the stock UI

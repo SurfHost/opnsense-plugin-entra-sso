@@ -232,7 +232,7 @@ meet them.
 | Field | Value |
 |---|---|
 | **Authentication** | **leave empty** (see the warning below) |
-| **Auth Token Lifetime** | `28800` (8 hours) |
+| **Auth Token Lifetime** | **leave empty** (the plugin manages this, see below) |
 
 **Routing**
 
@@ -258,10 +258,16 @@ set together, and the timeout must be at least twice the interval.
 Click **Save**. The instance is running immediately, because **Enabled** is part
 of the form; there is no separate step to switch it on afterwards.
 
-Leave **Renegotiate time** empty. It is empty out of the box, and that is fine:
-the client presents its auth token instead of returning to the browser, which is
-what **Auth Token Lifetime** is for. Do not type `0` in it, because OPNsense then
-refuses to save any token lifetime at all.
+Leave **Renegotiate time** empty as well. OpenVPN renegotiates the session
+keys roughly hourly, and the plugin injects an
+`auth-gen-token <lifetime> external-auth` directive into the instance (the
+lifetime is configurable under the SSO page's Advanced settings, default 24
+hours) so the SSO daemon renews the auth token silently at each
+renegotiation, without a browser. This only works while the instance's
+**Auth Token Lifetime** field stays empty: a value there emits a second
+`auth-gen-token` line, so the plugin skips its injection to keep the
+instance bootable, and every renegotiation then falls back to a reconnect
+with a browser round-trip.
 
 There is no *Certificate Authority* field to fill in unless you enable
 **advanced mode**; the CA is taken from the certificate you selected. Only set
@@ -300,8 +306,10 @@ If you already run OpenVPN, open the instance under **VPN > OpenVPN >
 Instances** and confirm:
 
 - [ ] **Authentication** is empty
-- [ ] **Auth Token Lifetime** is set (e.g. `28800`), and **Renegotiate time** is
-      either empty or non-zero
+- [ ] **Auth Token Lifetime** is **empty** (the plugin injects its own token
+      directive with `external-auth`; a value here blocks that and brings the
+      browser back at every renegotiation), and **Renegotiate time** is empty
+      or non-zero
 - [ ] **Verify Client Certificate** is `require`, and your users have client
       certificates
 - [ ] **Keep alive interval** and **Keep alive timeout** are set (e.g. `10` and
@@ -679,8 +687,11 @@ was not provided by peer"*, and no browser ever opens.
 4. Sign in and complete MFA if your tenant requires it.
 5. The browser shows a success page, and the tunnel comes up.
 
-Reconnecting within the **Auth Token Lifetime** you configured happens silently,
-without a browser prompt.
+Reconnecting and the hourly renegotiation happen silently, without a browser
+prompt: the SSO daemon renews the auth token in place, falling back to its
+stored Entra refresh token when needed. The browser only returns when the
+daemon cannot renew you at all, mainly after a restart of the SSO service
+(its session store is in memory) or when Entra revokes the session.
 
 You can confirm the session under **VPN > OpenVPN > Connection Status**, which
 keeps working normally while SSO is active.
@@ -717,6 +728,7 @@ configctl openvpnauthoauth2 details
 | Certificate warning in the browser | The listener certificate is self-signed or does not match the hostname in the base URL. |
 | `AADSTS7000215` (invalid client secret) | Wrong secret, or the *Secret ID* was copied instead of the *Value*. |
 | `AADSTS50011` (redirect URI mismatch) | The redirect URI in Entra must be exactly your base URL plus `/oauth2/callback`. |
+| Browser opens about once an hour while connected; server log shows **TLS: Username/auth-token authentication failed** at the same moment | The hourly renegotiation could not renew the auth token silently. Check the *OpenVPN instance directives* status row reads `present`; the usual cause is a value in the instance's **Auth Token Lifetime** field, which blocks the plugin's `auth-gen-token ... external-auth` injection. Clear the field, save the instance, then press **Save** on the SSO page. |
 | Login succeeds but VPN is refused | The user is not assigned to the enterprise application, or is not in a group listed under *Allowed groups*. |
 | Everyone is suddenly refused | The Entra client secret expired. Create a new one and paste the value into the plugin. |
 

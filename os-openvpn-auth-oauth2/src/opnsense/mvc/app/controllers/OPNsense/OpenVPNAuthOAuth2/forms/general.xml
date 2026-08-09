@@ -122,7 +122,14 @@
         <id>openvpnauthoauth2.daemon.autoFixInstanceFlag</id>
         <label>Repair OpenVPN instance flag</label>
         <type>checkbox</type>
-        <help>Add the required 'management-client-auth' directive to the selected instance when it is missing, and restart that instance. The instance's Options field does not offer this directive and silently drops it whenever the instance is saved, so without this repair SSO stops working after any edit of the instance. Note that the repair restarts the OpenVPN instance, dropping its active tunnels.</help>
+        <help>Add the required 'management-client-auth', 'auth-user-pass-optional' and 'auth-gen-token ... external-auth' directives to the selected instance when they are missing, and restart that instance. The instance's Options field does not offer these directives and silently drops them whenever the instance is saved, so without this repair SSO stops working after any edit of the instance. Note that the repair restarts the OpenVPN instance, dropping its active tunnels.</help>
+    </field>
+    <field>
+        <id>openvpnauthoauth2.daemon.authTokenLifetime</id>
+        <label>Auth token lifetime (s)</label>
+        <type>text</type>
+        <advanced>true</advanced>
+        <help>Maximum age of an OpenVPN auth token before the SSO daemon must fall back to a full OIDC refresh. Injected into the instance as 'auth-gen-token ... external-auth' by the repair above; the instance's own Auth Token Lifetime field must stay empty, otherwise the injection is skipped to avoid a duplicate directive.</help>
     </field>
     <field>
         <id>openvpnauthoauth2.daemon.passthroughEnabled</id>

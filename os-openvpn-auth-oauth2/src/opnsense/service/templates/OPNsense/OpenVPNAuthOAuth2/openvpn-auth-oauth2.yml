@@ -59,6 +59,11 @@ oauth2:
 {% endif %}
   refresh:
     enabled: true
+    # match reconnects and renegotiations to their stored session via the
+    # auth-token session ID, so renewals are silent; without this the daemon
+    # logs "detected client session ID but not configured to use it" and
+    # every re-auth falls back to an interactive browser login
+    use-session-id: true
     secret: {{ q(secret) }}
 
 {# core names an instance's management socket after its UUID, not its vpnid:

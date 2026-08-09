@@ -29,7 +29,11 @@ CONFIG_XML = '/conf/config.xml'
 # both are needed: management-client-auth defers the connect decision to the
 # daemon, and auth-user-pass-optional stops OpenVPN demanding credentials a
 # certificate-only profile never sends (which would kill the session before
-# the daemon is ever consulted). Keep in sync with OpenVPNAuthOAuth2.php.
+# the daemon is ever consulted). The model additionally injects
+# 'auth-gen-token <lifetime> external-auth', without which OpenVPN judges
+# auth tokens itself, rejects them at the first renegotiation, and the
+# client falls back to a browser round-trip about once an hour. Keep in
+# sync with OpenVPNAuthOAuth2.php.
 REQUIRED_FLAGS = ('management-client-auth', 'auth-user-pass-optional')
 
 
@@ -214,7 +218,12 @@ def client_auth_flag(instance_uuid, config_xml=CONFIG_XML):
         if instance.get('uuid') != instance_uuid:
             continue
         flags = {flag.strip() for flag in (instance.findtext('various_flags') or '').split(',')}
-        return all(required in flags for required in REQUIRED_FLAGS)
+        has_flags = all(required in flags for required in REQUIRED_FLAGS)
+        has_token = any(
+            flag.startswith('auth-gen-token ') and flag.endswith(' external-auth')
+            for flag in flags
+        )
+        return has_flags and has_token
     return None
 
 

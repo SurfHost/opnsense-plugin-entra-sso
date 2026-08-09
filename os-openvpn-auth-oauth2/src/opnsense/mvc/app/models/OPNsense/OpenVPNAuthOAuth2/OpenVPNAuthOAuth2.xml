@@ -103,6 +103,16 @@
                 <Default>1</Default>
                 <Required>Y</Required>
             </autoFixInstanceFlag>
+            <!-- injected into the instance as
+                 'auth-gen-token {lifetime} external-auth'; requires the
+                 instance's own Auth Token Lifetime field to stay empty -->
+            <authTokenLifetime type="IntegerField">
+                <Default>86400</Default>
+                <MinimumValue>600</MinimumValue>
+                <MaximumValue>604800</MaximumValue>
+                <ValidationMessage>Auth token lifetime must be between 600 and 604800 seconds.</ValidationMessage>
+                <Required>Y</Required>
+            </authTokenLifetime>
             <passthroughEnabled type="BooleanField">
                 <Default>1</Default>
                 <Required>Y</Required>

@@ -65,10 +65,10 @@ class ServiceController extends ApiMutableServiceControllerBase
     }
 
     /**
-     * Add 'management-client-auth' to the selected instance when missing and
-     * restart that instance so the regenerated config carries the directive.
-     * Restarting drops the instance's active tunnels, so it only happens when
-     * the flag was genuinely absent (i.e. SSO could not have worked anyway).
+     * Repair the SSO directives (REQUIRED_FLAGS plus the auth token
+     * directive) on the selected instance and restart it so the regenerated
+     * config carries them. Restarting drops the instance's active tunnels,
+     * so it only happens when something was genuinely missing or stale.
      */
     private function repairInstanceFlag()
     {
@@ -85,7 +85,7 @@ class ServiceController extends ApiMutableServiceControllerBase
         $backend = new Backend();
         $backend->configdpRun('openvpn restart', [$uuid]);
         syslog(LOG_NOTICE, sprintf(
-            "openvpn-auth-oauth2: added 'management-client-auth' to OpenVPN instance %s and restarted it",
+            'openvpn-auth-oauth2: repaired the SSO directives on OpenVPN instance %s and restarted it',
             $uuid
         ));
     }
