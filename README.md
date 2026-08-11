@@ -18,15 +18,16 @@ silent while the auth token is valid.
 ## Contents
 
 1. [What you need](#what-you-need)
-2. [Step 1: Register the application in Entra ID](#step-1-register-the-application-in-entra-id)
-3. [Step 2: Prepare the OpenVPN server](#step-2-prepare-the-openvpn-server)
-4. [Step 3: Install the plugin](#step-3-install-the-plugin)
-5. [Step 4: Configure the plugin](#step-4-configure-the-plugin)
-6. [Step 5: Firewall rules](#step-5-firewall-rules)
-7. [Step 6: Connect a client](#step-6-connect-a-client)
-8. [Troubleshooting](#troubleshooting)
-9. [How it works](#how-it-works)
-10. [Maintainer notes](#maintainer-notes)
+2. [Quick checklist](#quick-checklist)
+3. [Step 1: Register the application in Entra ID](#step-1-register-the-application-in-entra-id)
+4. [Step 2: Prepare the OpenVPN server](#step-2-prepare-the-openvpn-server)
+5. [Step 3: Install the plugin](#step-3-install-the-plugin)
+6. [Step 4: Configure the plugin](#step-4-configure-the-plugin)
+7. [Step 5: Firewall rules](#step-5-firewall-rules)
+8. [Step 6: Connect a client](#step-6-connect-a-client)
+9. [Troubleshooting](#troubleshooting)
+10. [How it works](#how-it-works)
+11. [Maintainer notes](#maintainer-notes)
 
 ---
 
@@ -45,6 +46,53 @@ Two ports must be reachable from the internet: the OpenVPN port itself
 
 The plugin protects **one** OpenVPN instance per firewall in this version.
 Other instances keep working normally, they just do not get SSO.
+
+---
+
+## Quick checklist
+
+Complete every item and you have a working SSO setup. The numbered steps
+below cover each item in detail.
+
+**Entra ID**
+
+- [ ] Create the app registration (single tenant)
+- [ ] Add Web redirect URI `https://vpn.example.com:9443/oauth2/callback`
+- [ ] Create a client secret and copy its value
+- [ ] Permissions `openid`, `profile`, `offline_access`, grant admin consent
+- [ ] Enterprise app: *Assignment required* = Yes, assign your users
+- [ ] Note the tenant ID and client ID
+
+**DNS and certificate**
+
+- [ ] DNS A record for the VPN hostname, pointing at the firewall WAN
+- [ ] Let's Encrypt certificate for that hostname (os-acme-client)
+
+**OpenVPN instance**
+
+- [ ] Create CA, server certificate and client certificate, each with a Common Name
+- [ ] Create the server instance: UDP 1194, tunnel network, local network
+- [ ] Authentication empty, Auth Token Lifetime empty, Renegotiate time empty
+- [ ] Keep alive interval `10`, timeout `60` (advanced mode)
+
+**Plugin**
+
+- [ ] Enable SSH in OPNsense
+- [ ] Add the SurfHost repository, run `pkg update`
+- [ ] Install `os-openvpn-auth-oauth2` from the Plugins page
+- [ ] Fill in the SSO page: instance, tenant ID, client ID, client secret, base URL, encryption secret, TLS certificate
+- [ ] Save, then check every status row is green
+
+**Firewall**
+
+- [ ] WAN rules: pass UDP 1194 and TCP 9443
+- [ ] OpenVPN interface rule: pass tunnel network to LAN
+
+**Client**
+
+- [ ] Export the profile: File Only, real hostname, the client certificate row
+- [ ] Optional: delete `persist-key`, add `auth-nocache`
+- [ ] Import, connect, sign in once in the browser
 
 ---
 
