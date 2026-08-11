@@ -330,7 +330,21 @@ NetworkManager, will no longer connect.
 
 The plugin is not in the official OPNsense repository, so add ours once. SSH
 into the firewall as `root`, or use option **8) Shell** on the console
-(OPNsense has no GUI page for running shell commands):
+(OPNsense has no GUI page for running shell commands).
+
+SSH is disabled on a fresh OPNsense install. Enable it under
+**System > Settings > Administration**, section **Secure Shell**:
+
+- **Enable Secure Shell**: ticked
+- **Permit root user login**: ticked
+- **Permit password login**: ticked
+
+Click **Save** at the bottom of the page. The default firewall rules only
+accept SSH from the LAN side, which is all this needs. For permanent SSH
+access, prefer key-based logins over passwords; if you only enabled SSH for
+this installation, untick the three options again afterwards.
+
+Then, on the shell:
 
 ```sh
 fetch -o /usr/local/etc/pkg/repos/surfhost.conf https://surfhost.github.io/opnsense-plugin-entra-sso/surfhost.conf
