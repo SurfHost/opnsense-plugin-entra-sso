@@ -56,7 +56,7 @@ below cover each item in detail.
 
 **Entra ID**
 
-- [ ] Create the app registration (single tenant)
+- [ ] Create the app registration (single tenant), or run the script in 1.6
 - [ ] Add Web redirect URI `https://vpn.example.com:9443/oauth2/callback`
 - [ ] Create a client secret and copy its value
 - [ ] Permissions `openid`, `profile`, `offline_access`, grant admin consent
@@ -101,6 +101,9 @@ below cover each item in detail.
 You are creating an application that represents your VPN, so Entra ID knows who
 is asking when a user signs in.
 
+Prefer a script? [1.6](#16-the-same-with-powershell) does 1.1 to 1.4 in one
+PowerShell run and prints the values to write down.
+
 ### 1.1 Create the app registration
 
 1. Go to the [Microsoft Entra admin center](https://entra.microsoft.com) and
@@ -131,7 +134,8 @@ need them:
 
 1. In your new app registration, go to **Certificates & secrets**.
 2. Under **Client secrets**, click **New client secret**.
-3. Give it a description and an expiry (24 months is the maximum).
+3. Give it a description and an expiry (24 months is the portal's maximum;
+   the PowerShell route in [1.6](#16-the-same-with-powershell) can go longer).
 4. Click **Add**, then **immediately copy the `Value` column**. It is shown only
    once, and the `Secret ID` is not the value you need.
 
@@ -173,6 +177,97 @@ groups, which then denies them.
 Under **Entra ID > Conditional Access > Policies**, create a policy scoped to
 this application to require MFA, a compliant device, or specific named locations.
 This is the main reason to use SSO rather than passwords, so it is worth doing.
+
+### 1.6 The same with PowerShell
+
+Steps 1.1 to 1.4 as one script, using the Microsoft Graph PowerShell module.
+Set the four variables at the top, then paste the whole block into a PowerShell
+window. Sign in with an account that may grant admin consent (Application
+Administrator or higher; Global Administrator always works). The first run
+asks you to consent to the Graph scopes for the PowerShell module itself.
+
+```powershell
+# Module (once): Install-Module Microsoft.Graph -Scope CurrentUser
+Connect-MgGraph -Scopes "Application.ReadWrite.All","AppRoleAssignment.ReadWrite.All","DelegatedPermissionGrant.ReadWrite.All","Group.Read.All"
+
+$appName      = "OPNsense OpenVPN SSO"
+$baseUrl      = "https://vpn.example.com:9443"   # public base URL, no trailing slash
+$vpnGroup     = "VPN Users"                       # group allowed to connect
+$secretMonths = 24                                # see the note below the script
+
+# 1. App registration (single tenant) with the Web redirect URI
+$app = New-MgApplication -DisplayName $appName -SignInAudience "AzureADMyOrg" `
+  -Web @{ RedirectUris = @("$baseUrl/oauth2/callback") }
+
+# 2. Enterprise app (service principal) with Assignment required = Yes
+$sp = New-MgServicePrincipal -AppId $app.AppId -AppRoleAssignmentRequired:$true
+
+# 3. Delegated Graph permissions plus admin consent for the whole tenant
+$scopes  = "openid","profile","offline_access","User.Read"
+$graphSp = Get-MgServicePrincipal -Filter "appId eq '00000003-0000-0000-c000-000000000000'"
+$access  = $graphSp.Oauth2PermissionScopes | Where-Object { $_.Value -in $scopes } |
+  ForEach-Object { @{ Id = $_.Id; Type = "Scope" } }
+Update-MgApplication -ApplicationId $app.Id -RequiredResourceAccess @(@{
+  ResourceAppId  = $graphSp.AppId
+  ResourceAccess = @($access)
+})
+New-MgOauth2PermissionGrant -ClientId $sp.Id -ConsentType "AllPrincipals" `
+  -ResourceId $graphSp.Id -Scope ($scopes -join " ") | Out-Null
+
+# 4. Who may connect: assign the group to the enterprise app (default access)
+#    For a single user instead: $principal = Get-MgUser -UserId "jan@example.com"
+$principal = Get-MgGroup -Filter "displayName eq '$vpnGroup'"
+if (@($principal).Count -ne 1) { throw "Expected exactly one group named '$vpnGroup'" }
+New-MgServicePrincipalAppRoleAssignedTo -ServicePrincipalId $sp.Id `
+  -PrincipalId $principal.Id -ResourceId $sp.Id -AppRoleId ([guid]::Empty) | Out-Null
+
+# 5. Client secret
+$secret = Add-MgApplicationPassword -ApplicationId $app.Id -PasswordCredential @{
+  DisplayName = "OPNsense $($secretMonths)m"; EndDateTime = (Get-Date).AddMonths($secretMonths)
+}
+
+# 6. The values for Step 4; the secret is shown only this once
+[pscustomobject]@{
+  TenantId     = (Get-MgContext).TenantId
+  ClientId     = $app.AppId
+  ClientSecret = $secret.SecretText
+  SecretExpiry = $secret.EndDateTime
+  RedirectUri  = "$baseUrl/oauth2/callback"
+} | Format-List
+```
+
+The result is identical to the portal route: the app registration and its
+enterprise app both appear under the name you chose, the API permissions page
+shows *Granted for &lt;tenant&gt;*, and the group is listed under **Users and
+groups**.
+
+- **Assigning a group** to an enterprise app needs Entra ID P1 or P2 (which
+  Conditional Access needs anyway). Without it, assign users one by one with
+  the `Get-MgUser` line in step 4, once per user.
+- **Replication delay:** if step 2 fails with *does not reference a valid
+  application object*, the new app has not reached every Entra replica yet.
+  Wait ten seconds and run the script again from step 2 on.
+- **Secret lifetime:** the portal caps secrets at 24 months, Graph does not, so
+  `$secretMonths = 60` gives five years. A tenant can still cap the lifetime
+  with an app management policy, in which case step 5 fails with an error
+  naming the maximum. Longer is not free: the secret sits in `config.xml` and
+  in every configuration backup, and a leaked one stays valid until it
+  expires or you delete it.
+
+To **renew the secret** before it expires, add a new one, paste it on the SSO
+page and save, then delete the old one:
+
+```powershell
+Connect-MgGraph -Scopes "Application.ReadWrite.All"
+$app = Get-MgApplication -Filter "displayName eq 'OPNsense OpenVPN SSO'"
+$app.PasswordCredentials | Format-Table DisplayName, KeyId, EndDateTime
+$new = Add-MgApplicationPassword -ApplicationId $app.Id -PasswordCredential @{
+  DisplayName = "OPNsense 24m"; EndDateTime = (Get-Date).AddMonths(24)
+}
+$new.SecretText
+# after saving the new secret on the SSO page:
+Remove-MgApplicationPassword -ApplicationId $app.Id -KeyId "<KeyId of the old secret>"
+```
 
 ### Reusing an existing app registration
 
@@ -406,7 +501,7 @@ ever offered the same package name, OPNsense's copy is the one that gets
 installed.
 
 > Priority is a preference, not a sandbox. It does not apply to packages only
-> this repository provides, and `pkg install -r surfhost` bypasses it. Adding
+> this repository provides, and `pkg install -r SurfHost` bypasses it. Adding
 > the repository means trusting SurfHost to the same degree as any other
 > package source on the firewall.
 
@@ -419,7 +514,7 @@ in the **Name** box, click the **+** on its row, and confirm the **Third party
 software** dialog with **Install**.
 
 The row then reads *os-openvpn-auth-oauth2 (installed)*. **Tier** shows `4` and
-**Repository** shows `surfhost`; that is correct and permanent, because OPNsense
+**Repository** shows `SurfHost`; that is correct and permanent, because OPNsense
 reserves tiers 1 to 3 for its own and its partners' repositories.
 
 > **Do not install it with `pkg install`.** That puts the files in place but
