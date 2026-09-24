@@ -192,15 +192,23 @@ Connect-MgGraph -Scopes "Application.ReadWrite.All","AppRoleAssignment.ReadWrite
 
 $appName      = "OPNsense OpenVPN SSO"
 $baseUrl      = "https://vpn.example.com:9443"   # public base URL, no trailing slash
-$vpnGroup     = "VPN Users"                       # group allowed to connect
+$vpnGroup     = "VPN Users"                       # group allowed to connect, "" for everyone
 $secretMonths = 24                                # see the note below the script
+
+# Look up the group first, so a typo fails before anything is created.
+# For a single user, replace the Get-MgGroup line with:
+#   $principal = Get-MgUser -UserId "jan@example.com"
+if ($vpnGroup) {
+  $principal = Get-MgGroup -Filter "displayName eq '$vpnGroup'"
+  if (@($principal).Count -ne 1) { throw "Expected exactly one group named '$vpnGroup'" }
+}
 
 # 1. App registration (single tenant) with the Web redirect URI
 $app = New-MgApplication -DisplayName $appName -SignInAudience "AzureADMyOrg" `
   -Web @{ RedirectUris = @("$baseUrl/oauth2/callback") }
 
-# 2. Enterprise app (service principal) with Assignment required = Yes
-$sp = New-MgServicePrincipal -AppId $app.AppId -AppRoleAssignmentRequired:$true
+# 2. Enterprise app (service principal); Assignment required = Yes only with a group
+$sp = New-MgServicePrincipal -AppId $app.AppId -AppRoleAssignmentRequired:([bool]$vpnGroup)
 
 # 3. Delegated Graph permissions plus admin consent for the whole tenant
 $scopes  = "openid","profile","offline_access","User.Read"
@@ -214,12 +222,12 @@ Update-MgApplication -ApplicationId $app.Id -RequiredResourceAccess @(@{
 New-MgOauth2PermissionGrant -ClientId $sp.Id -ConsentType "AllPrincipals" `
   -ResourceId $graphSp.Id -Scope ($scopes -join " ") | Out-Null
 
-# 4. Who may connect: assign the group to the enterprise app (default access)
-#    For a single user instead: $principal = Get-MgUser -UserId "jan@example.com"
-$principal = Get-MgGroup -Filter "displayName eq '$vpnGroup'"
-if (@($principal).Count -ne 1) { throw "Expected exactly one group named '$vpnGroup'" }
-New-MgServicePrincipalAppRoleAssignedTo -ServicePrincipalId $sp.Id `
-  -PrincipalId $principal.Id -ResourceId $sp.Id -AppRoleId ([guid]::Empty) | Out-Null
+# 4. Who may connect: assign the group to the enterprise app (default access).
+#    Skipped when $vpnGroup is empty: then every user in the tenant may sign in.
+if ($vpnGroup) {
+  New-MgServicePrincipalAppRoleAssignedTo -ServicePrincipalId $sp.Id `
+    -PrincipalId $principal.Id -ResourceId $sp.Id -AppRoleId ([guid]::Empty) | Out-Null
+}
 
 # 5. Client secret
 $secret = Add-MgApplicationPassword -ApplicationId $app.Id -PasswordCredential @{
@@ -241,9 +249,12 @@ enterprise app both appear under the name you chose, the API permissions page
 shows *Granted for &lt;tenant&gt;*, and the group is listed under **Users and
 groups**.
 
+- **No group** (`$vpnGroup = ""`) leaves *Assignment required* at No, so every
+  account in the tenant can complete the sign-in; the VPN client still needs
+  its certificate. You can restrict it later as described in 1.4.
 - **Assigning a group** to an enterprise app needs Entra ID P1 or P2 (which
   Conditional Access needs anyway). Without it, assign users one by one with
-  the `Get-MgUser` line in step 4, once per user.
+  the `Get-MgUser` line near the top, once per user.
 - **Replication delay:** if step 2 fails with *does not reference a valid
   application object*, the new app has not reached every Entra replica yet.
   Wait ten seconds and run the script again from step 2 on.
