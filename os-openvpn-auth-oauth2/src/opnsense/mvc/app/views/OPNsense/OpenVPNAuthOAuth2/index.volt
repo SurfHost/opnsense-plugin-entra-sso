@@ -109,6 +109,25 @@
         updateStatus();
         setInterval(updateStatus, 10000);
 
+        // move the "generate secret" button next to the Encryption secret
+        // label, the way core does for the instance auth-token secret
+        $("#control_label_openvpnauthoauth2\\.http\\.secret").before($("#gensecret_div").detach().show());
+
+        $("#gensecret").click(function(){
+            ajaxCall("/api/openvpnauthoauth2/settings/gen_secret", {}, function(data, status) {
+                var help = $("#help_block_openvpnauthoauth2\\.http\\.secret");
+                if (status !== "success" || data['result'] !== 'ok') {
+                    help.text("{{ lang._('Could not generate a secret on the firewall.') }}");
+                    return;
+                }
+                // a password field masks the new value, so confirm it in words;
+                // clear a validation error left by an earlier failed Save
+                $("*[id$='openvpnauthoauth2.http.secret']").removeClass("has-error");
+                $("#openvpnauthoauth2\\.http\\.secret").val(data['secret']).change();
+                help.text("{{ lang._('New secret generated. Click Save to store it.') }}");
+            });
+        });
+
         $("#saveAct").click(function(){
             saveFormToEndpoint("/api/openvpnauthoauth2/settings/set", 'frm_general_settings', function(){
                 ajaxCall("/api/openvpnauthoauth2/service/reconfigure", {}, function(data,status) {
@@ -170,6 +189,11 @@
 </div>
 
 <div class="content-box" style="padding-bottom: 1.5em;">
+    <span id="gensecret_div" style="display:none" class="pull-right">
+        <button id="gensecret" type="button" class="btn btn-secondary" title="{{ lang._('Generate a new secret on the firewall.') }}" data-toggle="tooltip">
+            <i class="fa fa-fw fa-gear"></i>
+        </button>
+    </span>
     {{ partial("layout_partials/base_form",['fields':generalForm,'id':'frm_general_settings']) }}
     <div class="col-md-12">
         <hr/>

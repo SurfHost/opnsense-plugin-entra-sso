@@ -100,7 +100,7 @@
         <id>openvpnauthoauth2.http.secret</id>
         <label>Encryption secret</label>
         <type>password</type>
-        <help>Random secret of exactly 16, 24 or 32 alphanumeric characters. Encrypts the browser state cookies and stored refresh tokens.</help>
+        <help>Random secret of exactly 16, 24 or 32 alphanumeric characters. Click the gear button next to this label to generate one on the firewall with openssl rand -hex 16 (32 characters), then click Save to store it. Encrypts the browser state cookies and stored refresh tokens.</help>
     </field>
     <field>
         <id>openvpnauthoauth2.http.tlsEnabled</id>

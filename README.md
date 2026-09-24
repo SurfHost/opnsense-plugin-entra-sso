@@ -74,6 +74,8 @@ below cover each item in detail.
 - [ ] Create the server instance: UDP 1194, tunnel network, local network
 - [ ] Authentication empty, Auth Token Lifetime empty, Renegotiate time empty
 - [ ] Keep alive interval `10`, timeout `60` (advanced mode)
+- [ ] Full tunnel only: Redirect gateway `default`, DNS Servers = the firewall's LAN address
+- [ ] Save, then Apply
 
 **Plugin**
 
@@ -87,6 +89,7 @@ below cover each item in detail.
 
 - [ ] WAN rules: pass UDP 1194 and TCP 9443
 - [ ] OpenVPN interface rule: pass tunnel network to LAN
+- [ ] Full tunnel only: OpenVPN rule destination `any`, plus a Source NAT rule for the tunnel network on WAN (mode Hybrid, or Manual if already set)
 
 **Client**
 
@@ -409,8 +412,11 @@ tunnel, the NAT mapping between client and firewall expires, and the tunnel
 silently dies and reconnects about every two idle minutes. Both fields must be
 set together, and the timeout must be at least twice the interval.
 
-Click **Save**. The instance is running immediately, because **Enabled** is part
-of the form; there is no separate step to switch it on afterwards.
+Click **Save**, then click **Apply** below the instance list (the page reminds
+you with *After changing settings, please remember to apply them.*). **Save**
+only stores the instance; **Apply** writes its configuration and starts it.
+Because **Enabled** is part of the form, there is no separate step to switch it
+on.
 
 Leave **Renegotiate time** empty as well. OpenVPN renegotiates the session
 keys roughly hourly, and the plugin injects an
@@ -443,16 +449,49 @@ adds it, and re-saving the instance later silently removes it again (see
 By default only the **Local Network** routes are pushed, so clients reach your
 LAN through the tunnel and everything else keeps going out over their own
 internet connection. To send *all* their traffic through the firewall instead,
-open **Miscellaneous > Redirect gateway** and select **default**.
+set these two fields under **Miscellaneous**:
 
-That option is OpenVPN's `def1` flag, which is why the dropdown does not say
+| Field | Value |
+|---|---|
+| **Redirect gateway** | `default` only |
+| **DNS Servers** | the firewall's LAN address, e.g. `192.168.1.1` (type it and press Enter) |
+
+**default** is OpenVPN's `def1` flag, which is why the dropdown does not say
 `def1`. It works by pushing two overriding routes rather than replacing the
 client's default route, so nothing is left behind if the client disconnects
 uncleanly.
 
-The field accepts more than one value. If your clients have IPv6, also select
-**ipv6 (default)**, otherwise IPv6 traffic keeps bypassing the tunnel while IPv4
-goes through it. Leaving the field empty is a normal split tunnel.
+**DNS Servers** matters because OPNsense pushes no DNS server on its own,
+redirect gateway or not. Clients then keep their own DNS servers, and any that
+are not on their local network (their provider's, or a public one such as
+`8.8.8.8`) are now reached through the tunnel as well. Pushing the firewall's
+address lets its Unbound resolver answer instead. Unbound accepts queries from
+every network by default, so the tunnel network needs no extra entry; only if
+you changed **Services > Unbound DNS > Access Lists > Default Action** to
+`Deny` or `Refuse` do you need to add an allow entry for `10.10.10.0/24`.
+
+Leave **ipv6 (default)** unselected unless the instance also has a
+**Server (IPv6)** tunnel network that the firewall can route to the internet,
+with IPv6 firewall rules to match. Without a **Server (IPv6)** network the
+option carries no IPv6 through the tunnel: OpenVPN 2.7 clients ignore it, so
+IPv6 keeps using the client's own connection, and OpenVPN 2.6 clients send
+IPv6 into a tunnel that cannot carry it. If you would rather block IPv6 on
+clients while they are connected, so none of it bypasses the tunnel, OpenVPN
+documents a way: fill in **Server (IPv6)** with a private range such as
+`fd15:53b6:dead::/64`, select **ipv6 (default)** next to **default**, and
+select `block-ipv6` under **Options**. The firewall then answers the clients'
+IPv6 packets with *no route to host*, so no IPv6 leaves around the tunnel.
+
+A full tunnel also needs two firewall items in step 5: the OpenVPN rule with
+**Destination** `any`, and a
+[Source NAT rule](#full-tunnel-only-source-nat) for the tunnel network.
+OPNsense does not create that NAT rule for an instance by itself. Without
+either one, clients connect and reach the LAN, but not the internet.
+
+Leaving **Redirect gateway** empty is a normal split tunnel.
+
+Set these fields before you click **Save** and **Apply**, or click both again
+after changing them later.
 
 ### 2.3 Checklist for an existing instance
 
@@ -469,6 +508,9 @@ Instances** and confirm:
 - [ ] **Keep alive interval** and **Keep alive timeout** are set (e.g. `10` and
       `60`, visible in advanced mode), so an idle tunnel does not die to NAT
       timeouts
+- [ ] Full tunnel only: **Redirect gateway** is `default` only and **DNS
+      Servers** is set, see
+      [Sending all client traffic through the VPN](#sending-all-client-traffic-through-the-vpn)
 
 Nothing else changes yet; existing clients keep working. Be aware the cutover
 is instance-wide: once you save the plugin settings in step 4, every client of
@@ -682,11 +724,14 @@ Go to **VPN > OpenVPN > SSO (OAuth2 / Entra ID)**:
 | **Allowed groups** | leave empty if you used *Assignment required* in 1.4 |
 | **Public base URL** | `https://vpn.example.com:9443`, must match the redirect URI in Entra exactly |
 | **Listen port** | `9443` |
-| **Encryption secret** | 16, 24 or 32 random letters and digits |
+| **Encryption secret** | click the gear button next to the field (any 16, 24 or 32 random letters and digits also work) |
 | **Enable TLS** | ticked |
-| **Certificate** | the certificate from 4.1 |
+| **Certificate** | the ACME Client certificate from 4.1, listed as **vpn.example.com (ACME Client)**, or the certificate you imported instead |
 
-Generate the encryption secret with:
+The gear button creates the secret on the firewall itself, with the same
+`openssl rand -hex 16` you would otherwise run by hand, and puts it in the
+field. It is stored when you click **Save** below. To make one yourself
+instead, run this and paste the result:
 
 ```sh
 openssl rand -hex 16
@@ -748,16 +793,16 @@ rule:
 | Field | Value |
 |---|---|
 | **Action** | Pass |
-| **TCP/IP Version** | IPv4 |
+| **Version** | IPv4 |
 | **Protocol** | any |
 | **Source** | the tunnel network from step 2, e.g. `10.10.10.0/24` |
-| **Destination** | `LAN net` |
+| **Destination** | `LAN net`, or `any` for a full tunnel |
 
 `LAN net` covers the single-LAN case and matches the **Local Network** example
 from step 2. If you route several networks through the tunnel, put them in an
 alias or add a rule per network. If you selected **Redirect gateway** in step
-2, set **Destination** to `any` instead, because the clients' internet traffic
-now flows through this interface too.
+2, **Destination** must be `any`: the clients' internet traffic now arrives on
+this interface too, and `LAN net` lets only the LAN part through.
 
 Routing and filtering are separate decisions: **Local Network** on the
 instance tells clients the tunnel is the way to reach a network, and this rule
@@ -766,10 +811,46 @@ is what actually permits the traffic once it arrives. Tighten **Protocol**,
 everything; identity-based per-user rules are not possible on this hop, since
 the firewall sees only tunnel IP addresses.
 
-One full-tunnel pitfall: if redirected clients reach the LAN but not the
-internet, check **Firewall > NAT > Outbound**. The default automatic mode
-translates the tunnel network on its way out; in manual mode you must add an
-outbound NAT rule for `10.10.10.0/24` on WAN yourself.
+### Full tunnel only: Source NAT
+
+Skip this if you left **Redirect gateway** empty in step 2.
+
+OPNsense's automatic Source NAT (outbound NAT) only translates the networks of
+LAN-type interfaces (assigned, with an address and no gateway), the IPsec
+mobile pool and legacy OpenVPN servers. It does not include the
+tunnel network of an OpenVPN *instance*, so redirected traffic would leave WAN
+with its private `10.10.10.x` source address and the replies never come back.
+OPNsense's own road-warrior guide for instances says the same: redirect gateway
+needs a manual Source NAT rule.
+
+1. Go to **Firewall > NAT > Source NAT**.
+2. Set **Mode** at the top of the page to **Hybrid Source NAT rule
+   generation** and click **Apply**. Hybrid keeps the automatic rules for your
+   LAN and adds your own; in **Automatic** mode the rule list is read-only and
+   rules of your own are not loaded. If the mode is already **Manual Source
+   NAT rule generation**, leave it as it is.
+3. Click **+** and fill in:
+
+   | Field | Value |
+   |---|---|
+   | **Interface** | WAN |
+   | **Version** | IPv4 |
+   | **Protocol** | any |
+   | **Source Address** | the tunnel network, e.g. `10.10.10.0/24` |
+   | **Translate Source IP** | leave empty, which uses the WAN address |
+   | **Description** | e.g. `OpenVPN SSO full tunnel` |
+
+   **Destination Address**, under the collapsed **Destination (advanced)**
+   header, stays at its default `any`.
+4. Click **Save**, then **Apply**.
+
+With more than one WAN, add the same rule for each. To confirm, run this in the
+firewall shell (use your own tunnel network); it must print a `nat on` line for
+your WAN device:
+
+```sh
+pfctl -s nat | grep 10.10.10.
+```
 
 ---
 
@@ -908,6 +989,7 @@ configctl openvpnauthoauth2 details
 | Idle tunnel drops and reconnects every ~2 minutes; client log shows **Inactivity timeout (--ping-restart)**, often with **AUTH_FAILED (auth-token)** on the first retry | No keepalive on the instance, so an idle tunnel goes silent and the client's NAT mapping expires (on Windows the read error *"De opgegeven netwerknaam is niet langer beschikbaar" (code=64)* is that mapping already gone). Fix as in the next row. The token failure is a side effect of the restart; the SSO daemon re-approves silently, which is why no browser opens. |
 | Server log: **WARNING: --keepalive option is missing from server config** | Harmless for authentication, but worth fixing: with no keepalive an idle UDP tunnel sends nothing and dies silently when the client's NAT mapping expires. Enable **advanced mode** on the instance and set **Keep alive interval** `10` and **Keep alive timeout** `60` (see step 2.2). Both must be set together, and the timeout must be at least twice the interval. If SSO is already live, re-saving the instance drops the plugin's directives, so press **Save** on the SSO page afterwards. |
 | Client hangs at *TLS key negotiation failed to occur within 60 seconds* | The client never reaches the server, so no browser is ever requested. Capture on the OpenVPN interface with filter `1194`. If you see the request arrive and a reply leave, but the reply's destination MAC differs from the sender's, pf's `reply-to` is forcing answers to the interface gateway; tick **Disable reply-to** on the rule (enable the advanced mode toggle in the rule dialog to see it), or set it globally in Firewall > Settings > Advanced. This bites when the client shares a subnet with a gateway-bearing interface. |
+| Full tunnel: clients connect and reach the LAN, but not the internet (everything works with **Redirect gateway** empty) | One of the full-tunnel items from [step 2.2](#sending-all-client-traffic-through-the-vpn) and [step 5](#full-tunnel-only-source-nat) is missing. On the client, run `ping 1.1.1.1`. **If it fails**, the firewall drops or does not translate the traffic: in the firewall shell, `pfctl -s nat \| grep 10.10.10.` (your tunnel network) printing nothing means there is no Source NAT for the tunnel, so add the rule and check the mode is **Hybrid** or **Manual**, not **Automatic**. If it does print a `nat on` line for WAN, the OpenVPN rule's **Destination** is probably still `LAN net`: set it to `any`. Blocked packets show up under **Firewall > Log Files > Live View** as *Default deny / state violation rule*. **If the ping works** but `nslookup example.com` fails, it is DNS: set **DNS Servers** on the instance. Separately, if you selected **ipv6 (default)** without a **Server (IPv6)** network, remove it; on an OpenVPN 2.6 client its log gives this away with *OpenVPN was configured to add an IPv6 route. However, no IPv6 has been configured*. |
 | Browser never opens on connect | The client does not support browser authentication, or the profile disconnects too early (try adding `auth-retry interact`). |
 | Browser opens but cannot load the page | DNS for your base URL does not point at the firewall, or the WAN rule for TCP 9443 is missing. If the zone is on Cloudflare, check the record is **DNS only** (grey cloud): proxied records resolve to Cloudflare's edge rather than your WAN, and the certificate still issues fine, so nothing else looks wrong. |
 | Certificate warning in the browser | The listener certificate is self-signed or does not match the hostname in the base URL. |
