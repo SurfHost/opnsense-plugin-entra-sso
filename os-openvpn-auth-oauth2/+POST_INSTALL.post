@@ -1,0 +1,19 @@
+# Copyright (c) 2026 SurfHost.nl
+# SPDX-License-Identifier: MIT
+
+# Put a new version of the SSO supervisor in charge when the service is
+# enabled and running, so an update does not leave the old one running (up
+# to 1.4 without the SSO guard). SIGTERM lets the old supervisor hand the
+# management socket back; daemon(8) -R, which was started before this update
+# and so is outside pkg's process tree, starts the new supervisor about five
+# seconds later. A restart from here would make the new service a
+# descendant of pkg, which SIGKILLs whatever a package script leaves behind.
+if /usr/local/etc/rc.d/openvpnauthoauth2 enabled && \
+    /usr/local/etc/rc.d/openvpnauthoauth2 status > /dev/null 2>&1; then
+	echo "Restarting the openvpn-auth-oauth2 supervisor"
+	# '|| :' matters: pkill exits 3 on an empty pidfile, which the child
+	# pidfile is while daemon(8) waits to respawn the supervisor, and pkg
+	# ends the whole transaction when a package script exits 3.
+	/bin/pkill -TERM -f -F /var/run/openvpnauthoauth2.child.pid \
+	    'OpenVPNAuthOAuth2/supervisor\.py' || :
+fi

@@ -9,7 +9,7 @@
         <id>openvpnauthoauth2.general.vpnInstance</id>
         <label>OpenVPN instance</label>
         <type>dropdown</type>
-        <help>The OpenVPN server instance to protect with SSO. Leave that instance's Authentication field empty; the required 'management-client-auth' directive is added automatically when you save (see Advanced).</help>
+        <help>The OpenVPN server instance to protect with SSO. Leave that instance's Authentication field empty; the required SSO directives are kept on the instance automatically, and an instance that runs without 'management-client-auth' is stopped (see Advanced).</help>
     </field>
     <field>
         <type>header</type>
@@ -120,9 +120,9 @@
     </field>
     <field>
         <id>openvpnauthoauth2.daemon.autoFixInstanceFlag</id>
-        <label>Repair OpenVPN instance flag</label>
+        <label>Repair OpenVPN instance directives</label>
         <type>checkbox</type>
-        <help>Add the required 'management-client-auth', 'auth-user-pass-optional' and 'auth-gen-token ... external-auth' directives to the selected instance when they are missing, and restart that instance. The instance's Options field does not offer these directives and silently drops them whenever the instance is saved, so without this repair SSO stops working after any edit of the instance. Note that the repair restarts the OpenVPN instance, dropping its active tunnels.</help>
+        <help>Keep 'management-client-auth', 'auth-user-pass-optional' and 'auth-gen-token ... external-auth' on the selected instance. The instance's Options field cannot show these directives and drops them whenever the instance is saved in VPN &gt; OpenVPN &gt; Instances. With this option on they are written back within a few seconds, and again right before every Apply there, at boot and on CARP events, so the instance is not restarted for it. If the instance is ever found running without 'management-client-auth', the SSO guard stops it at once (dropping its tunnels) and, with this option on, restores the directives and starts it again. With this option off nothing is written into the instance, and the guard keeps such an instance stopped. Protection cannot be switched off while SSO is enabled.</help>
     </field>
     <field>
         <id>openvpnauthoauth2.daemon.authTokenLifetime</id>

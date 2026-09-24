@@ -5,8 +5,8 @@
     SPDX-License-Identifier: MIT
 
     Health probe for the UI status panel. Emits one JSON object describing
-    supervisor, daemon, socket-swap, callback-listener and OpenVPN
-    prerequisite state.
+    supervisor, daemon, socket-swap, callback-listener, SSO enforcement and
+    OpenVPN prerequisite state.
 """
 
 import json
@@ -16,8 +16,12 @@ import ssl
 import stat
 import subprocess
 import sys
-import xml.etree.ElementTree as ElementTree
+import time
 from urllib.parse import urlsplit
+
+# root must not leave __pycache__ behind in the package's script directory
+sys.dont_write_bytecode = True
+import enforcement  # noqa: E402  (sibling module, sys.path[0] is this directory)
 
 SUPERVISOR_CONF = '/usr/local/etc/openvpn-auth-oauth2/supervisor.conf'
 # the CHILD pidfile written by daemon(8) -p: it holds supervisor.py's pid.
@@ -25,16 +29,12 @@ SUPERVISOR_CONF = '/usr/local/etc/openvpn-auth-oauth2/supervisor.conf'
 # alive in every failure mode and says nothing about supervisor health.
 PIDFILE = '/var/run/openvpnauthoauth2.child.pid'
 DAEMON_NAME = 'openvpn-auth-oauth2'
-CONFIG_XML = '/conf/config.xml'
-# both are needed: management-client-auth defers the connect decision to the
-# daemon, and auth-user-pass-optional stops OpenVPN demanding credentials a
-# certificate-only profile never sends (which would kill the session before
-# the daemon is ever consulted). The model additionally injects
-# 'auth-gen-token <lifetime> external-auth', without which OpenVPN judges
-# auth tokens itself, rejects them at the first renegotiation, and the
-# client falls back to a browser round-trip about once an hour. Keep in
-# sync with OpenVPNAuthOAuth2.php.
-REQUIRED_FLAGS = ('management-client-auth', 'auth-user-pass-optional')
+# the guard writes its state every 5s while it runs
+GUARD_FRESH = 15
+# worst first; the panel shows the worse of this probe's own verdict and the
+# guard's state
+ENFORCEMENT_RANK = ('open', 'unverified', 'stopping', 'held_down', 'not_watched',
+                    'repairing', 'verifying', 'not_running', 'enforced')
 
 
 def read_conf(path=SUPERVISOR_CONF):
@@ -202,29 +202,62 @@ def base_url_status(base_url, listen_port, tls_enabled):
     return status
 
 
-def client_auth_flag(instance_uuid, config_xml=CONFIG_XML):
-    """Report whether the selected OpenVPN instance carries every directive in
-    REQUIRED_FLAGS. Core's various_flags field is a closed OptionField that
-    offers none of them, so this is advisory: without them OpenVPN either
-    never defers client connects, or rejects the client for not sending a
-    password, and SSO stays silent either way."""
-    if not instance_uuid:
-        return None
-    try:
-        root = ElementTree.parse(config_xml).getroot()
-    except (OSError, ElementTree.ParseError):
-        return None
-    for instance in root.iter('Instance'):
-        if instance.get('uuid') != instance_uuid:
-            continue
-        flags = {flag.strip() for flag in (instance.findtext('various_flags') or '').split(',')}
-        has_flags = all(required in flags for required in REQUIRED_FLAGS)
-        has_token = any(
-            flag.startswith('auth-gen-token ') and flag.endswith(' external-auth')
-            for flag in flags
-        )
-        return has_flags and has_token
-    return None
+def enforcement_status(conf, saved, supervisor):
+    """Whether the RUNNING OpenVPN process of the selected instance enforces
+    SSO, as the worse of this probe's own verdict (enforcement.assess) and
+    the guard's reported state. The saved directives in config.xml say
+    nothing about the running process: OpenVPN fixes client-auth when it
+    starts, so only the config it loaded counts."""
+    uuid = conf.get('instance_uuid', '')
+    persisted = enforcement.read_state()
+    mine = persisted if persisted is not None and persisted.get('uuid') == uuid else {}
+    guard = 'absent'
+    fresh = False
+    if persisted is not None:
+        guard = 'stale'
+        heartbeat = mine.get('heartbeat')
+        if isinstance(heartbeat, (int, float)) and time.time() - heartbeat < GUARD_FRESH and supervisor:
+            guard = 'running'
+            fresh = True
+    result = {
+        'state': 'no_instance',
+        'pid': None,
+        'reason': '',
+        'stops': mine.get('stops') or 0,
+        'repairs': mine.get('repairs') or 0,
+        'guard': guard,
+        'optional_loaded': None,
+    }
+    if not conf.get('vpnid') or not enforcement.UUID_RE.match(uuid) or saved == {'instance': False}:
+        return result
+
+    own_reason = ''
+    ident = enforcement.pid_identity(enforcement.paths(uuid)['pid'])
+    if ident is None or enforcement.is_instance_openvpn(ident[0], uuid) is False:
+        own = 'not_running'
+    else:
+        verdict, own_reason, info = enforcement.assess(uuid, ident)
+        own = 'verifying' if verdict == 'pending' else verdict
+        result['pid'] = ident[0]
+        result['optional_loaded'] = info.get('optional')
+        # the guard's persisted proof for this very process (client-auth is
+        # fixed per process), valid even after the config on disk changed
+        if mine.get('verified') and mine['verified'] == list(ident):
+            own, own_reason = 'enforced', ''
+            if mine.get('optional_loaded') is not None:
+                result['optional_loaded'] = mine['optional_loaded']
+
+    if fresh and mine.get('state') in ENFORCEMENT_RANK:
+        guard_state, guard_reason = mine['state'], mine.get('reason') or ''
+    else:
+        guard_state, guard_reason = 'not_watched', ''
+    if ENFORCEMENT_RANK.index(guard_state) < ENFORCEMENT_RANK.index(own):
+        result['state'] = guard_state
+        result['reason'] = guard_reason
+    else:
+        result['state'] = own
+        result['reason'] = own_reason
+    return result
 
 
 def main():
@@ -271,7 +304,17 @@ def main():
 
         foreign = sorted({e['command'] for e in listeners if not ours(e['command'])})
         result['listen_conflict'] = foreign
-        result['client_auth_flag'] = client_auth_flag(conf.get('instance_uuid', ''))
+        saved = enforcement.saved_directives(conf.get('instance_uuid', ''))
+        result['saved_directives'] = saved
+        result['auto_fix'] = conf.get('auto_fix', '1') != '0'
+        result['pre_apply_hook'] = enforcement.core_pre_apply_hook()
+        result['enforcement'] = enforcement_status(conf, saved, result['supervisor'])
+        # kept for older panels: the saved security directives, token aside
+        # (the instance's own Auth Token Lifetime is a valid setup too)
+        if saved is not None and saved.get('instance'):
+            result['client_auth_flag'] = saved['client_auth'] and saved['optional']
+        else:
+            result['client_auth_flag'] = None
         result['base_url'] = base_url_status(
             conf.get('base_url', ''),
             conf.get('listen_port', ''),
@@ -283,6 +326,10 @@ def main():
         result['listen'] = ''
         result['listen_binds'] = []
         result['listen_conflict'] = []
+        result['saved_directives'] = None
+        result['auto_fix'] = None
+        result['pre_apply_hook'] = None
+        result['enforcement'] = {'state': 'disabled'}
         result['client_auth_flag'] = None
         result['base_url'] = {'url': '', 'problems': [], 'resolves': []}
 

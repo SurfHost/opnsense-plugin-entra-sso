@@ -1,6 +1,7 @@
 # Microsoft Entra ID SSO for OpenVPN on OPNsense: Investigation
 
-*Status: investigated August 2026, targeting OPNsense 26.7 "Xenial Xenops".*
+*Status: investigated August 2026, targeting OPNsense 26.7 "Xenial Xenops".
+The fail-open analysis and its fix (plugin 1.5) were added in September 2026.*
 
 ## TL;DR
 
@@ -163,8 +164,9 @@ status/kill for that one instance (documented limitation).
 
 - Add `management-client-auth` to the instance's `various_flags` (labelled
   **Options** in the instance dialog). Required so OpenVPN asks the management
-  client to decide `>CLIENT:CONNECT`. The plugin adds it automatically and
-  reports it in the status panel.
+  client to decide `>CLIENT:CONNECT`. The plugin adds it automatically, keeps
+  it there, and stops the instance if it ever runs without it
+  ([details](#fail-open-when-the-directive-is-missing-fixed-in-15)).
 - Leave **Authentication** (authmode) empty, otherwise `ovpn_event.py --defer`
   *and* the SSO daemon must both approve every login (usable as a deliberate
   2-source auth, but not the default).
@@ -209,26 +211,281 @@ present in `config.xml`.
 | Path | Notes |
 |---|---|
 | **Upstream core PR adding `management-client-auth` to the `OptionValues` list** | The real fix; one-line model change, no generator work. Prerequisite for a supportable release. |
-| **Plugin self-heal (implemented)** | On save/apply and on service start the plugin writes the flag straight into the instance's `various_flags` node in `config.xml`, bypassing the closed OptionField, then runs `configctl openvpn restart <uuid>` so the regenerated config carries the directive. Controlled by *Repair OpenVPN instance flag* (default on). |
+| **Plugin self-heal (implemented)** | The plugin writes the directives straight into the instance's `various_flags` node in `config.xml`, bypassing the closed OptionField, from three places: a pre-Apply hook on core's `pluginctl -c crl` step (Apply, boot, CARP), a watcher on `config.xml` in the SSO service (after every instance save, within seconds), and the SSO page (Save, service start and restart, which restart the instance when they had to add something). The first two never restart anything. An SSO guard stops any instance process that runs without `management-client-auth` ([below](#fail-open-when-the-directive-is-missing-fixed-in-15)). Controlled by *Repair OpenVPN instance directives* (default on); with it off nothing is written, and the guard keeps an instance without the directive stopped. |
 | Hand-edit `config.xml` | The manual version of the above; still useful for testing without the plugin enabled. |
 | Exclusive mode / other injection hacks | Do not help; the directive must reach the generated instance config. |
 
 Consequences for this plugin:
 
 - the model deliberately does **not** validate the flag (a `performValidation`
-  message is a hard error and would make the plugin un-enableable); the status
-  panel reports it as a warning instead;
-- `OpenVPNAuthOAuth2::ensureClientAuthFlag()` performs the repair, and
-  `ServiceController` restarts the affected instance when (and only when) it
-  actually added the directive; a restart drops that instance's tunnels;
+  message is a hard error and would make the plugin un-enableable);
+  enforcement happens at runtime, in the SSO guard, and the status panel
+  reports;
+- `OpenVPNAuthOAuth2::ensureClientAuthFlag()` performs the repair under the
+  configuration lock, appending in a fixed order so a repeated repair yields a
+  byte-identical instance config. Its callers are the SSO page (reconfigure,
+  start and restart, where `ServiceController` restarts the instance when,
+  and only when, something was added; that drops its tunnels), the pre-Apply
+  `crl` hook, and the guard through
+  `pluginctl -c openvpnauthoauth2_directives`;
 - the repair writes into core's configuration section, which is why it is a
   bridge and not the destination. Two caveats: the value stays invisible to
-  the OpenVPN instance form (which will drop it again on the next save there,
-  triggering another repair on the next apply), and a core code path doing
-  *full-model* validation on the OpenVPN model would reject the value. Core's
-  own migrations do not, because `BaseModel::performValidation()` only
-  validates fields that changed and migrations serialize without full-model
-  validation, so the flag survives firmware updates.
+  the OpenVPN instance form, which drops it again on every save there, and a
+  core code path doing *full-model* validation on the OpenVPN model would
+  reject the value. Core's own migrations do not, because
+  `BaseModel::performValidation()` only validates fields that changed and
+  migrations serialize without full-model validation, so the flag survives
+  firmware updates;
+- up to 1.4 the drop on every instance save made the instance **fail open**
+  until the SSO page was saved again; the next Apply did *not* repair it. Since
+  1.5 the pre-Apply hook restores the directives before core regenerates the
+  configs, the watcher restores them within seconds of the save, and the
+  guard stops any process that started without them anyway.
+
+#### Fail-open when the directive is missing (fixed in 1.5)
+
+Confirmed on hardware with 1.4: after the instance was saved in **VPN >
+OpenVPN > Instances** and then applied, any client holding a valid certificate
+for the instance connected without SSO, with the network access of a signed-in
+user, until **Save** was pressed on the SSO page. OpenVPN does not fail closed
+when the directive is missing.
+
+Verified in OpenVPN `v2.7.7` (what 26.7.3 and later ship) and opnsense/core
+`stable/26.7` (identical to tag 26.7.4 for the files cited):
+
+- **Why it fails open.** With no `auth-user-pass-verify` script, no auth
+  plugin and no `management-client-auth`, `tls_session_user_pass_enabled()` is
+  false and the key becomes `KS_AUTH_TRUE` on the certificate alone
+  (`ssl.c:963-972`, `2333-2342`).
+- **Only `management-client-auth` decides.** `auth-user-pass-optional` without
+  it stops OpenVPN from starting (`options.c:2611-2623`). The directive without
+  `auth-user-pass-optional` rejects certificate-only clients
+  (`ssl.c:2319-2328`). The directive with no daemon attached refuses the login
+  once the deferred-auth deadline expires (`ssl_verify.c:1105-1113`). One bare
+  line in the loaded config is therefore enough to call a process closed.
+- **It is fixed per process.** The management object is created once
+  (`init.c:4340-4346`, called at `openvpn.c:201`) and closed only after the
+  SIGHUP loop (`openvpn.c:341`); its settings are applied only while
+  `!ms->defined` (`manage.c:2639`, set at `2718`). Core never sends SIGHUP to
+  an instance. A running process cannot gain the directive; it has to be
+  restarted.
+- **Start order.** Config parse (`openvpn.c:208`), daemonize and pidfile
+  (`275-278`), management open (`283`), `context_init_1` (`298`), then
+  `tunnel_server` (`310`), which binds the link socket. The pidfile exists
+  before any client can connect, which is what the guard keys on.
+- **The pre-generation hook.** Core's `[configure]` action is
+  `pluginctl -c crl; ovpn_service_control.php -a configure`
+  (`actions_openvpn.conf:39-43`). `plugins_configure()` runs hook tasks
+  synchronously and catches only `\Error` (`plugins.inc:261-331`). Boot and
+  CARP run `configctl -dq openvpn configure` (`rc.syshook.d/start/90-openvpn`,
+  `carp/20-openvpn-instances`), and so does Apply
+  (`OpenVPN/Api/ServiceController.php:244-254`). Per-instance start, restart
+  and stop (`actions_openvpn.conf:19-37`, the Services widget in
+  `openvpn.inc:81-95`) skip the `crl` step.
+- **What `ovpn_service_control.php` does.** It generates the configs before
+  taking any lock (`143-149`), then holds `LOCK_EX` on `.stat` (opened `a+e`,
+  `162-163`, released at `200`). `ovpn_start` writes
+  `{md5 of the .conf, vpnid, devname, dev_type}` to `.stat` after
+  `waitforpid(..., 10)` (`59-88`). `configure` restarts an instance only when
+  the md5 differs or the pid is invalid (`100-109`, `185-193`). `start` on a
+  running instance regenerates the `.conf` but neither restarts it nor
+  rewrites `.stat` (`62`). It does run `setup_interface()` first, though,
+  which ends in `ifconfig <dev> down` (`35-57`, called at `61`, before the
+  `isvalidpid()` check at `62`): it takes a running instance's tunnel
+  interface down. So before its start the guard waits, for up to 30 s, while
+  core holds the instance's `.stat` lock (a start, stop or configure of it is
+  under way), and does not start an instance that is running again by then.
+  `isvalidpid()` is `pgrep -F` (`util.inc:70-77`), which any live process
+  passes, so the guard first removes a pidfile whose pid is dead or belongs
+  to another program, and only while the pidfile still names that process.
+  A core run that begins after these checks can still race the start.
+- **Paths** (`InstanceField.php:46-49`): `/var/etc/openvpn/instance-{uuid}.conf`
+  and `.stat`, and `/var/run/ovpn-instance-{uuid}.pid`.
+- **How core writes the config.** Every `various_flags` entry becomes a bare
+  line, in stored order (`OpenVPN.php:767-771`). The file is rewritten in
+  place with touch, chmod, write (`OpenVPN.php:538`, `File.php:49-58`), so a
+  reader can see it half written.
+- **`explicit-exit-notify`** is a core `various_flags` option
+  (`OpenVPN.xml:326`). On UDP the first SIGTERM defers the exit by 2 s while
+  the server keeps serving; a second SIGTERM exits at once
+  (`multi.c:3821-3873`).
+- **A clean exit** removes the DCO peers and destroys the DCO interface
+  (`dco_freebsd.c:309-351`), and removes the pidfile (`error.c:709`) and the
+  management socket (`manage.c:2790`). A stale socket path is unlinked before
+  bind (`manage.c:2041-2048`).
+- **DCO keeps its own socket reference.** `if_ovpn` holds an extra reference
+  on the UDP socket "until we're destroying the ifp"
+  (`sys/net/if_ovpn.c:786-792`), so after a SIGKILL the kernel peers and the
+  port may outlive the process until the interface is destroyed. The guard
+  does that after a SIGKILL; core recreates the interface on the next start.
+
+Package scripts are a source reading, not part of the list above; hardware
+test T10 confirms them (opnsense/plugins `Mk/plugins.mk`, pkg 2.8.4
+`libpkg/scripts.c` `pkg_script_run()`). A plugin's `+POST_INSTALL.post` is
+appended to the generated `+POST_INSTALL`, after its configd restart and
+template reload (`scripts-post`), and pkg runs that script on upgrades too,
+with `PKG_UPGRADE=true`. pkg makes itself the reaper of its descendants while
+the script runs and SIGKILLs every process the script leaves behind. So the
+plugin's script does not restart the SSO service itself: it sends the running
+supervisor SIGTERM, and daemon(8) `-R 5`, started before the update and so
+outside pkg's process tree, starts the new supervisor. A script that exits 3
+makes pkg exit on the spot (`pkg_script_run_child()`), so the script's
+`pkill` must not pass on its exit status 3 for an empty pidfile.
+
+The fix keeps one invariant: while SSO is enabled, the protected instance may
+only run as an OpenVPN process whose loaded config provably contained a bare
+`management-client-auth` line, and nothing removes the directives
+automatically. The three mechanisms (pre-Apply hook, config watcher, SSO
+guard), the exposure that remains and the stop sequence are described in the
+README under
+[Fail-closed enforcement](../README.md#fail-closed-enforcement). How the guard
+proves a process: it reads the `.conf` until two reads agree, requires the
+bare directive, and compares the md5 with core's `.stat` written after this
+start (read under a non-blocking `LOCK_SH`, and only when it is newer than the
+pidfile). The `.stat` md5 is that of the `.conf` on disk right after the
+start, not necessarily the one OpenVPN parsed: a `.conf` rewritten after the
+pidfile but before the `.stat` write counts as unverified (modification
+times), while one rewritten between OpenVPN's config parse and its pidfile
+write cannot be told apart (see [Known limitations](#known-limitations)).
+The verdict is kept per process identity
+(pid, pidfile inode, pidfile mtime) in `/var/run/openvpnauthoauth2.guard.json`,
+which is sound because of the per-process rule above.
+
+Rejected alternatives:
+
+| Alternative | Why not |
+|---|---|
+| An **Authentication** backend as a backstop | OpenVPN ANDs its backends (`ssl_verify.c:1786-1795`), so every login would need both, which breaks SSO |
+| `username-as-common-name` as a tripwire | blanks the common name, and unticking it in the GUI disarms it |
+| `management-hold` | stripped together with our directives on every save, and the daemon releases the hold automatically |
+| Watching for `ESTABLISHED` and sending `client-kill` | acts after the client is already in |
+| Patching core's generated `.conf` at runtime under the `.stat` lock | edits a core file and depends on core's lock ordering |
+| A `config` syshook to re-add the directives | asynchronous and can be dropped; the watcher covers the same case |
+| An opt-out switch for the guard | recreates this exact bug from a checkbox |
+| Removing the directives automatically on disable | silently turns a protected instance into a certificate-only one; documented as a manual step instead |
+
+#### Guard log lines
+
+All lines use the syslog tag `openvpn-auth-oauth2`; the guard's lines start
+with `SSO guard: `.
+
+| ID | Level | Text |
+|---|---|---|
+| P1 | notice | `restored the SSO directives on OpenVPN instance {uuid} before OpenVPN applied its configuration` |
+| P2 | notice | `restored the SSO directives on OpenVPN instance {uuid} for the SSO guard` |
+| P3 | err | `could not restore the SSO directives on OpenVPN instance {uuid}: {message}` |
+| G1 | notice | `watching OpenVPN instance {uuid} (repair on\|off)` |
+| G2 | notice | `OpenVPN instance {uuid} pid {pid} enforces SSO (management-client-auth loaded, start record md5 {md5})` |
+| G3 | notice | `waiting for core to record the start of OpenVPN instance {uuid} pid {pid} ({reason})` |
+| G4 | alert | `OpenVPN instance {uuid} pid {pid} is running WITHOUT management-client-auth; any valid client certificate connects without SSO. Stopping it now` |
+| G5 | err | `cannot prove OpenVPN instance {uuid} pid {pid} loaded management-client-auth ({reason}); stopping it` |
+| G6 | notice | `stopped OpenVPN instance {uuid} pid {pid} after {t}s; every session it admitted was dropped` |
+| G7 | err | `pid {pid} ignored SIGTERM for 5s; sent SIGKILL` |
+| G8 | notice | `destroyed DCO interface {devname} so no kernel peer outlives the stopped process` |
+| G9 | notice | `restoring the SSO directives in config.xml (config.xml lost them\|before restarting the stopped instance)` |
+| G10 | notice | `starting OpenVPN instance {uuid} with the SSO directives (repair {n}/3 in 15 minutes)` |
+| G11 | alert | `keeping OpenVPN instance {uuid} stopped: {reason}. {what to do}` |
+| G12 | warning | `OpenVPN instance {uuid} started again without SSO enforcement and was stopped ({n} times since {time})`, at most once a minute |
+| G13 | warning | `the saved configuration of OpenVPN instance {uuid} lacks management-client-auth and repair is off; the next start of this instance will be stopped` |
+| G14 | warning | `core no longer runs pluginctl -c crl before regenerating OpenVPN configs; an Apply may start the instance without management-client-auth until the guard stops it` |
+| G16 | alert | `internal error, guard keeps running: {traceback}`, at most once a minute per guard step (reap, config watch, instance check); a failing step does not skip the others, and while the instance check fails no heartbeat is written, so the status panel shows *not watched* within 15 s |
+| G17 | warning | `stopped; OpenVPN instance {uuid} is no longer watched` |
+| G18 | err | `could not stop OpenVPN instance {uuid} pid {pid}: it outlived SIGKILL; trying again every 5s`; the instance is then held (G11) and the stop is retried, logged at most once a minute |
+| G19 | notice | `OpenVPN instance {uuid} was started again (pid {pid}) while the SSO directives were being restored; checking that process instead of starting the instance`; replaces G10 and counts as one of the three repairs in 15 minutes |
+| G20 | notice | `resuming the repair of OpenVPN instance {uuid} that a restart of the SSO service interrupted`; the first check after a restart found no process of the instance while the last state written, less than 60 s before, was *stopping* or *repairing*; G9 follows |
+| M1 | notice | `OpenVPN instance {uuid} is held stopped by the SSO guard; SSO daemon paused` |
+| M2 | err | `SSO guard thread stopped unexpectedly; restarting the supervisor` |
+
+Core's own start line, `OpenVPN server {vpnid} instance started on PID {pid}.`,
+is logged under the tag `openvpn`.
+
+#### Hardware tests for fail-closed enforcement
+
+Run these after any change to the guard, the hook or the model, and after a
+core minor update (see the core contract checklist in the README's maintainer
+notes). Run `sh` first; root's tcsh cannot parse the setup.
+
+Setup, in a second SSH session:
+
+```sh
+U=$(sed -n 's/^instance_uuid=//p' /usr/local/etc/openvpn-auth-oauth2/supervisor.conf)
+C=/var/etc/openvpn/instance-$U.conf; P=/var/run/ovpn-instance-$U.pid; S=/var/etc/openvpn/instance-$U.stat
+check() { echo "pid $(cat $P 2>/dev/null)"; grep -cx management-client-auth $C; cat $S; echo; cat /var/run/openvpnauthoauth2.guard.json; echo; }
+tail -F /var/log/system/latest.log /var/log/openvpn/latest.log
+```
+
+Test client: a certificate-only client in a loop, for example
+`openvpn --config test.ovpn --connect-retry 1 1`, watching for
+`Initialization Sequence Completed`. With SSO in force it waits for the
+browser; without SSO it completes at once.
+
+- **T0, baseline.** Deploy, run `configctl openvpnauthoauth2 restart`. Expect
+  G1 then G2, the status row *enforced*, and `check` printing `1` and a guard
+  state `enforced`. Confirm with `ps -ww -o comm= -o args= -p $(cat $P)` that the
+  comm is `openvpn` and the args contain the `.conf` path, and note
+  `sysctl vfs.timestamp_precision`.
+- **T1, the reported bug path.** Save the instance without changes, do not
+  Apply. Within a few seconds expect G9 (*config.xml lost them*) and P2; the
+  saved row goes amber, then green. Press Apply. Pass: no new
+  `instance started on PID` line, `cat $P` unchanged, directive present.
+- **T1b, the pre-Apply hook alone.** `configctl openvpnauthoauth2 stop`, save
+  the instance, Apply. Expect P1 and no restart line (pid unchanged); the
+  enforcement row shows *not watched*. Then
+  `configctl openvpnauthoauth2 start`.
+- **T2, open instance plus guard repair.** Stop the SSO service, save the
+  instance, run `configctl openvpn restart $U`: `grep -cx
+  management-client-auth $C` now prints `0` and the test client connects
+  without a browser, the bug reproduced. Run
+  `configctl openvpnauthoauth2 start`. Expect, within about a second: G1, G4,
+  G6 (G7 and G8 only if SIGKILL was needed), G9 and P2, G10, core's
+  `started on PID`, then G2. Pass: the client is dropped and gets back in
+  only through the browser; `check` shows stops 1 and repairs 1.
+- **T3, GUI race.** Pre-type `configctl openvpn restart $U`, save the
+  instance and press Enter at once; repeat five times. Pass: either G9 then
+  G2 (the watcher won), or G4, G6, G10, G2. Never G2 for a pid whose `.conf`
+  lacked the directive, and the client loop never completes without a browser
+  login.
+- **T4, repair off and hold.** Untick *Repair OpenVPN instance directives*
+  and Save; expect G1 *(repair off)*. Save the instance, then Apply: expect
+  G13, then after the Apply a core start, G4, G6 and G11. Pass: `cat $P`
+  fails, status *instance kept stopped*, the client times out. Start the
+  instance on **System > Diagnostics > Services**: a start line, then G6 and
+  G12 (both at most once a minute while held); it stays stopped. Tick
+  Repair and Save: expect the controller line *repaired ... and restarted
+  it* and G2; the hold is cleared.
+- **T5, `explicit-exit-notify`.** Add it to the instance Options (UDP
+  instance) and Apply; the guard restores the directive, one extra bounce is
+  acceptable here. Repeat T2. Pass: G6 reports under a second, not 2 s or
+  more.
+- **T6, supervisor crash.** `pkill -9 -f OpenVPNAuthOAuth2/supervisor.py`.
+  Pass: G1 after about 5 s, no G4 or G5, pid unchanged.
+- **T7, cached verdict.** On a box whose other instances have no pending
+  changes, note `cat $P`, run `configctl openvpn configure`, which
+  regenerates the `.conf` but restarts an instance only when its md5 changed
+  or its pid is invalid (`ovpn_service_control.php:190-193`), then
+  `configctl openvpnauthoauth2 restart`. Pass: G1 then G2 (persisted
+  verdict), no G3, G4, G5 or G10, and `cat $P` prints the same pid. Do not
+  use `configctl openvpn start $U` here: on a running instance it takes the
+  tunnel interface down.
+- **T8, token field.** Set the instance's **Auth Token Lifetime**, Save and
+  Apply. Pass: G2, enforcement green, token row amber. Clear the field
+  afterwards.
+- **T9, DCO only.** `ifconfig -g openvpn` before and after T2. The interface
+  disappears only when the process was SIGKILLed (G8), and core recreates it
+  on start.
+- **T10, update.** On a box running 1.4 with SSO enabled, note
+  `cat /var/run/openvpnauthoauth2.child.pid`, then update on **System >
+  Firmware > Updates**; the update log shows
+  `Restarting the openvpn-auth-oauth2 supervisor`. Pass: about 5 s after the
+  update a new pid in that file, G1 in the log, `pgrep -f configd.py` still
+  running, and the enforcement row no longer *not watched*. Repeat on 1.5
+  with `pkg install -f os-openvpn-auth-oauth2`: the same, and no instance
+  restart.
+
+Open measurements: the time from pidfile to SIGTERM against OpenVPN's own
+start-up plus a client handshake (T2, T3), and whether `vfs.timestamp_precision`
+gives sub-second mtimes (T0), which the concurrent-generation check in the
+guard relies on.
 
 ## Entra ID app registration (runbook)
 
@@ -303,8 +560,42 @@ Client profile: certificate-based profile exported from OPNsense, plus
    core's `various_flags` is a closed OptionField
    ([details](#blocker-management-client-auth-is-not-settable-in-the-stock-ui)).
    A core PR is the prerequisite for a supportable release; a `config.xml`
-   edit unblocks lab testing. The plugin reports the missing flag in its
-   status panel.
+   edit unblocks lab testing. Since 1.5 the plugin keeps the directives on
+   the instance and stops the instance if it runs without them
+   ([details](#fail-open-when-the-directive-is-missing-fixed-in-15)). What
+   remains:
+   - a per-instance restart (dashboard, Services page, Connection Status, a
+     cron job, an HA sync) within a second or two of an instance save, with
+     repair off, or after core stops writing the directive, starts the
+     instance open until the guard stops it, within about a second; only a
+     holder of a valid, unrevoked client certificate from the instance CA can
+     use that window, and no auth token is issued in it;
+   - with the SSO service stopped by hand while SSO is enabled, per-instance
+     restarts are unwatched; Apply, boot and CARP stay covered by the
+     pre-Apply hook, and the status panel shows *not watched*;
+   - after a restart of the SSO service there are a few seconds without a
+     guard before its startup check, which also takes up a repair that the
+     restart interrupted. An update restarts a running SSO service the same
+     way, through the package's post-install script; should that not take,
+     the old version keeps running until the service is restarted by hand
+     (README 3.3), coming from 1.4 without a guard and with the status panel
+     showing *not watched*;
+   - a race of a few milliseconds the guard cannot see: when two core runs
+     overlap (an Apply during a per-instance restart) and the second
+     regenerates the `.conf` between OpenVPN's config parse and its pidfile
+     write, `.stat` records the md5 of the regenerated file, which also
+     predates the pidfile, so a process that parsed a config without the
+     directive passes as enforcing until it exits. It takes two core runs
+     within milliseconds of each other and a config that gained the
+     directive in between;
+   - the `pluginctl -c crl` step the pre-Apply hook relies on is verified in
+     source but is not a documented core interface; the status panel and log
+     line G14 report its disappearance;
+   - on CARP pairs each node needs the plugin enabled, since its settings are
+     not part of the XMLRPC sync;
+   - disabling or removing the plugin, or selecting another instance, leaves
+     the directives on the old instance, which then refuses every client after
+     about 60 seconds. This is documented, never automated.
 4. **Client coverage** excludes NetworkManager and is partial for Connect v3.
 5. **Secret lifecycle**: Entra client secrets expire (max 24 months).
 
@@ -334,8 +625,12 @@ Client profile: certificate-based profile exported from OPNsense, plus
    for `management-client-auth`.
 2. Upstream contributions, in order of leverage:
    - opnsense/core: **add `management-client-auth` to the instance
-     `various_flags` OptionValues** > unblocks supported use (prerequisite for
-     a release; one-line model change);
+     `various_flags` OptionValues**, or a plugin hook before
+     `generateInstanceConfig()` in `ovpn_service_control.php` > unblocks
+     supported use (prerequisite for a release; the first is a one-line model
+     change). Either retires the pre-Apply hook and the config watcher, not
+     the SSO guard, which stays as the check on what the running process
+     actually loaded;
    - opnsense/core: configurable management socket path (or post-start hook)
      for instances > removes the socket swap;
    - FreeBSD build of the `.so` shim (Go c-shared on freebsd/amd64) > removes

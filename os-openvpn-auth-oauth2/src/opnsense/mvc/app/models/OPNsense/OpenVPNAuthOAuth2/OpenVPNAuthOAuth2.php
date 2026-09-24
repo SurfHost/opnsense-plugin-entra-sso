@@ -62,9 +62,19 @@ class OpenVPNAuthOAuth2 extends BaseModel
      * supported injection point until core accepts the directives (see
      * docs/INVESTIGATION.md). Guarded by a model toggle.
      *
-     * @return bool|null true when something changed (caller must restart the
-     *                   instance), false when everything was already in
-     *                   place, null when not applicable
+     * Callers: the SSO page (reconfigure, start and restart), the 'crl'
+     * configure hook that core runs right before it regenerates the instance
+     * configs, and the SSO guard through
+     * 'pluginctl -c openvpnauthoauth2_directives'. The whole read-modify-write
+     * runs under the Config lock, so it must not be called while the caller
+     * already holds that lock. The append order is stable, so core
+     * regenerates a byte-identical instance config after a repair and does
+     * not restart the instance for it.
+     *
+     * @return bool|null true when config.xml was changed and saved (the
+     *                   running instance only picks it up at its next start,
+     *                   which is up to the caller), false when everything was
+     *                   already in place, null when not applicable
      */
     public function ensureClientAuthFlag()
     {
@@ -79,67 +89,82 @@ class OpenVPNAuthOAuth2 extends BaseModel
             return null;
         }
 
-        $config = Config::getInstance()->object();
-        if (!isset($config->OPNsense->OpenVPN->Instances->Instance)) {
-            return null;
-        }
-
-        foreach ($config->OPNsense->OpenVPN->Instances->Instance as $instance) {
-            if ((string)$instance['uuid'] !== $uuid) {
-                continue;
-            }
-            $flags = array_values(array_filter(
-                array_map('trim', explode(',', (string)$instance->various_flags)),
-                'strlen'
-            ));
-            $changed = false;
-
-            $missing = array_diff(self::REQUIRED_FLAGS, $flags);
-            if ($missing !== []) {
-                $flags = array_merge($flags, array_values($missing));
-                $changed = true;
+        $cfg = Config::getInstance();
+        try {
+            // flock plus reload, so an instance save that landed after this
+            // model was loaded is neither lost nor overwritten
+            $cfg->lock();
+            $config = $cfg->object();
+            if (!isset($config->OPNsense->OpenVPN->Instances->Instance)) {
+                return null;
             }
 
-            $wanted = (string)$instance->{'auth-gen-token'} === '' ? $this->tokenDirective() : null;
-            $kept = [];
-            $present = false;
-            foreach ($flags as $flag) {
-                if (strpos($flag, 'auth-gen-token') === 0) {
-                    if ($flag !== $wanted) {
-                        $changed = true;
-                        continue;
-                    }
-                    $present = true;
+            foreach ($config->OPNsense->OpenVPN->Instances->Instance as $instance) {
+                if ((string)$instance['uuid'] !== $uuid) {
+                    continue;
                 }
-                $kept[] = $flag;
-            }
-            $flags = $kept;
-            if ($wanted !== null && !$present) {
-                $flags[] = $wanted;
-                $changed = true;
+                $flags = array_values(array_filter(
+                    array_map('trim', explode(',', (string)$instance->various_flags)),
+                    'strlen'
+                ));
+                $changed = false;
+
+                $missing = array_diff(self::REQUIRED_FLAGS, $flags);
+                if ($missing !== []) {
+                    $flags = array_merge($flags, array_values($missing));
+                    $changed = true;
+                }
+
+                $wanted = (string)$instance->{'auth-gen-token'} === '' ? $this->tokenDirective() : null;
+                $kept = [];
+                $present = false;
+                foreach ($flags as $flag) {
+                    if (strpos($flag, 'auth-gen-token') === 0) {
+                        if ($flag !== $wanted) {
+                            $changed = true;
+                            continue;
+                        }
+                        $present = true;
+                    }
+                    $kept[] = $flag;
+                }
+                $flags = $kept;
+                if ($wanted !== null && !$present) {
+                    $flags[] = $wanted;
+                    $changed = true;
+                }
+
+                if (!$changed) {
+                    return false;
+                }
+                if (isset($instance->various_flags)) {
+                    $instance->various_flags = implode(',', $flags);
+                } else {
+                    $instance->addChild('various_flags', implode(',', $flags));
+                }
+                $cfg->save(['description' => sprintf(
+                    'openvpn-auth-oauth2 restored the SSO directives on OpenVPN instance %s',
+                    $uuid
+                )]);
+                return true;
             }
 
-            if (!$changed) {
-                return false;
-            }
-            if (isset($instance->various_flags)) {
-                $instance->various_flags = implode(',', $flags);
-            } else {
-                $instance->addChild('various_flags', implode(',', $flags));
-            }
-            Config::getInstance()->save();
-            return true;
+            return null;
+        } finally {
+            // save() releases the file lock but leaves the Config marked as
+            // locked, so unlock() is needed on every path
+            $cfg->unlock();
         }
-
-        return null;
     }
 
     /**
      * Note on 'management-client-auth': see ensureClientAuthFlag(). It is
      * deliberately NOT validated here, because messages appended in
      * performValidation are hard errors that block the save, which would make
-     * the plugin impossible to enable whenever the flag is absent. The status
-     * panel reports a missing directive as a warning instead.
+     * the plugin impossible to enable whenever the flag is absent. Enforcement
+     * happens at runtime instead: the SSO guard in supervisor.py stops the
+     * instance whenever it runs without the directive, and the status panel
+     * reports it.
      */
     public function performValidation($validateFullModel = false)
     {

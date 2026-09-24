@@ -65,10 +65,26 @@ class ServiceController extends ApiMutableServiceControllerBase
     }
 
     /**
+     * Same repair on a service restart from this page.
+     * @return array
+     */
+    public function restartAction()
+    {
+        if ($this->request->isPost()) {
+            $this->repairInstanceFlag();
+        }
+
+        return parent::restartAction();
+    }
+
+    /**
      * Repair the SSO directives (REQUIRED_FLAGS plus the auth token
      * directive) on the selected instance and restart it so the regenerated
      * config carries them. Restarting drops the instance's active tunnels,
      * so it only happens when something was genuinely missing or stale.
+     * The model takes the Config lock for the write. This is hygiene, not
+     * the security boundary: the SSO guard stops an instance that runs
+     * without 'management-client-auth' either way.
      */
     private function repairInstanceFlag()
     {
@@ -84,8 +100,11 @@ class ServiceController extends ApiMutableServiceControllerBase
 
         $backend = new Backend();
         $backend->configdpRun('openvpn restart', [$uuid]);
+        // Config::save() logs its config event under the ident 'config' and
+        // leaves it set; ours routes this line to the plugin's own log
+        openlog('openvpn-auth-oauth2', LOG_ODELAY, LOG_DAEMON);
         syslog(LOG_NOTICE, sprintf(
-            'openvpn-auth-oauth2: repaired the SSO directives on OpenVPN instance %s and restarted it',
+            'repaired the SSO directives on OpenVPN instance %s and restarted it',
             $uuid
         ));
     }

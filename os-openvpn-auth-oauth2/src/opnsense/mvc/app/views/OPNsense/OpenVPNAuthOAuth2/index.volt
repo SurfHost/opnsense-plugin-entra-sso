@@ -13,9 +13,38 @@
 
         updateServiceControlUI('openvpnauthoauth2');
 
+        var label_classes = {
+            'good': 'label-success',
+            'warn': 'label-warning',
+            'bad': 'label-danger',
+            'off': 'label-default'
+        };
+
+        // text is a translation, which lang._() has already made HTML safe
+        function labelHtml(cls, text) {
+            return '<span class="label ' + label_classes[cls] + '">' + text + '</span>';
+        }
+
         function statusLabel(state, text_map) {
-            var cls = {'good': 'label-success', 'bad': 'label-danger', 'off': 'label-default'}[state];
-            return '<span class="label ' + cls + '">' + text_map[state] + '</span>';
+            return labelHtml(state, text_map[state]);
+        }
+
+        // lang._() HTML-escapes its result (quotes and '>' become entities),
+        // so decode a translation before it goes through .text(); a textarea
+        // parses no markup, only character references
+        var decoder = document.createElement('textarea');
+        function plainText(html) {
+            decoder.innerHTML = html;
+            return decoder.value;
+        }
+
+        // fill the %s placeholders of a translation in order; a replacer
+        // function keeps '$' sequences in server-provided values literal
+        function fillIn(html, values) {
+            var i = 0;
+            return plainText(html).replace(/%s/g, function () {
+                return String(values[i++]);
+            });
         }
 
         function updateStatus() {
@@ -29,14 +58,21 @@
                 $("#status_rows").show();
                 var running_map = {
                     'good': "{{ lang._('running') }}",
+                    'warn': "{{ lang._('running, not consulted') }}",
                     'bad': "{{ lang._('not running') }}",
                     'off': "{{ lang._('disabled') }}"
                 };
                 var enabled = data['enabled'] === true;
+                var enforcement = data['enforcement'] || {};
+                var enforcement_state = enabled ? enforcement['state'] : 'disabled';
+                var auto_fix = data['auto_fix'] !== false;
+                var saved = data['saved_directives'];
                 $("#status_supervisor").html(
                     statusLabel(!enabled ? 'off' : (data['supervisor'] ? 'good' : 'bad'), running_map));
-                $("#status_daemon").html(
-                    statusLabel(!enabled ? 'off' : (data['daemon'] ? 'good' : 'bad'), running_map));
+                // OpenVPN only asks the daemon while it runs with management-client-auth
+                var consulted = enforcement_state === 'enforced' || enforcement_state === 'verifying';
+                $("#status_daemon").html(statusLabel(
+                    !enabled ? 'off' : (!data['daemon'] ? 'bad' : (consulted ? 'good' : 'warn')), running_map));
                 $("#status_swap").html(statusLabel(
                     data['swap'] === 'active' ? 'good' : (data['swap'] === 'disabled' ? 'off' : 'bad'), {
                         'good': "{{ lang._('active') }}",
@@ -91,17 +127,121 @@
                 } else {
                     $("#baseurl_warning").hide();
                 }
-                var flag = data['client_auth_flag'];
-                $("#status_client_auth").html(
-                    statusLabel(flag === true ? 'good' : (flag === false ? 'bad' : 'off'), {
-                        'good': "{{ lang._('present') }}",
-                        'bad': "{{ lang._('missing') }}",
-                        'off': "{{ lang._('unknown') }}"
-                    }));
-                if (flag === false) {
-                    $("#client_auth_warning").show();
+
+                // the security row: what the running OpenVPN process loaded,
+                // which stays fixed for the life of that process
+                var enforcement_labels = {
+                    'enforced': ['good', "{{ lang._('enforced') }}"],
+                    'verifying': ['off', "{{ lang._('verifying') }}"],
+                    'not_running': ['off', "{{ lang._('instance not running') }}"],
+                    'repairing': ['warn', "{{ lang._('restarting with the SSO directives') }}"],
+                    'stopping': ['bad', "{{ lang._('NOT ENFORCED, stopping instance') }}"],
+                    'open': ['bad', "{{ lang._('NOT ENFORCED') }}"],
+                    'unverified': ['bad', "{{ lang._('cannot verify') }}"],
+                    'held_down': ['bad', "{{ lang._('instance kept stopped') }}"],
+                    'not_watched': ['bad', "{{ lang._('not watched') }}"],
+                    'no_instance': ['bad', "{{ lang._('instance not found') }}"],
+                    'disabled': ['off', "{{ lang._('disabled') }}"]
+                };
+                var enforcement_label = enforcement_labels.hasOwnProperty(enforcement_state) ?
+                    enforcement_labels[enforcement_state] : ['off', "{{ lang._('unknown') }}"];
+                $("#status_enforcement").html(labelHtml(enforcement_label[0], enforcement_label[1]));
+
+                var details = [];
+                if (enabled) {
+                    if (enforcement['pid']) {
+                        details.push(['', fillIn("{{ lang._('OpenVPN pid %s') }}", [enforcement['pid']])]);
+                    }
+                    if (enforcement['reason']) {
+                        details.push(['', enforcement['reason']]);
+                    }
+                    if (enforcement['stops'] > 0) {
+                        details.push(['', fillIn(
+                            "{{ lang._('stopped %s times, restarted %s times since the service started') }}",
+                            [enforcement['stops'], enforcement['repairs'] || 0])]);
+                    }
+                    if (enforcement_state === 'enforced' && enforcement['optional_loaded'] === false) {
+                        details.push(['text-warning', plainText(
+                            "{{ lang._('certificate-only logins are refused: auth-user-pass-optional missing') }}")]);
+                    }
+                    if (data['pre_apply_hook'] === false) {
+                        details.push(['text-warning', plainText(
+                            "{{ lang._('pre-Apply hook missing: core changed, see the log') }}")]);
+                    }
+                }
+                var detail = $("#status_enforcement_detail").empty();
+                $.each(details, function (i, line) {
+                    if (i > 0) {
+                        detail.append($("<br/>"));
+                    }
+                    detail.append($("<span/>").addClass(line[0]).text(line[1]));
+                });
+
+                var reason = enforcement['reason'] || plainText("{{ lang._('unknown') }}");
+                var alert_text = '';
+                if (enforcement_state === 'open' || enforcement_state === 'stopping') {
+                    alert_text = plainText("{{ lang._("The OpenVPN instance is running without 'management-client-auth', so anyone holding a valid client certificate for it connects without signing in. While the SSO service runs it stops such an instance within a second. If this message stays, stop the instance on System > Diagnostics > Services and check the SSO log.") }}");
+                } else if (enforcement_state === 'unverified') {
+                    alert_text = fillIn("{{ lang._("The SSO guard cannot prove that the running OpenVPN instance loaded 'management-client-auth' (%s). It restarts the instance to be sure. If this message stays, check the SSO log.") }}", [reason]);
+                } else if (enforcement_state === 'held_down') {
+                    alert_text = fillIn("{{ lang._("The OpenVPN instance started without 'management-client-auth'. The SSO guard stopped it, which dropped every session it had, and keeps it stopped: %s.") }}", [reason]) + ' ' + (auto_fix ?
+                        plainText("{{ lang._('Press Apply on VPN > OpenVPN > Instances to restore the directives and start it.') }}") :
+                        plainText("{{ lang._("Turn on 'Repair OpenVPN instance directives' under Advanced and press Save, or add the directives yourself and press Apply on VPN > OpenVPN > Instances.") }}"));
+                } else if (enforcement_state === 'not_watched' && data['supervisor'] === true) {
+                    // the service runs but its guard has not reported recently
+                    alert_text = plainText("{{ lang._("The SSO guard is not reporting, so nothing stops the OpenVPN instance if it ever starts without 'management-client-auth'. Apply, boot and CARP still restore the directives first, but a restart from the dashboard or System > Diagnostics > Services is not checked. If this message stays, restart the service above and check the SSO log.") }}");
+                } else if (enforcement_state === 'not_watched') {
+                    alert_text = plainText("{{ lang._("The SSO service is not running, so nothing stops the OpenVPN instance if it ever starts without 'management-client-auth'. Apply, boot and CARP still restore the directives first, but a restart from the dashboard or System > Diagnostics > Services is not checked. Start the service above.") }}");
+                } else if (enforcement_state === 'no_instance') {
+                    alert_text = plainText("{{ lang._('The OpenVPN instance selected on this page no longer exists, so no instance is protected. Select the instance to protect and press Save.') }}");
+                }
+                if (alert_text !== '') {
+                    $("#enforcement_alert").text(alert_text).show();
+                } else {
+                    $("#enforcement_alert").hide();
+                }
+
+                // config.xml, which core rewrites without the directives
+                // whenever the instance itself is saved
+                var saved_ok = !!(saved && saved['client_auth'] && saved['optional']);
+                var saved_label;
+                if (!enabled) {
+                    saved_label = labelHtml('off', "{{ lang._('disabled') }}");
+                } else if (!saved) {
+                    saved_label = labelHtml('off', "{{ lang._('unknown') }}");
+                } else if (saved['instance'] !== true) {
+                    saved_label = labelHtml('bad', "{{ lang._('instance not found') }}");
+                } else if (saved_ok) {
+                    saved_label = labelHtml('good', "{{ lang._('present') }}");
+                } else if (auto_fix) {
+                    saved_label = labelHtml('warn', "{{ lang._('missing, restoring') }}");
+                } else {
+                    saved_label = labelHtml('bad', "{{ lang._('missing: the next start will be stopped') }}");
+                }
+                $("#status_client_auth").html(saved_label);
+                if (enabled && saved && saved['instance'] === true && !saved_ok && enforcement_state === 'enforced') {
+                    $("#client_auth_warning").text(
+                        plainText("{{ lang._('The directives are missing from the saved configuration, usually because the instance was saved in VPN > OpenVPN > Instances, whose Options field cannot show them. The running instance still enforces SSO.') }}") + ' ' + (auto_fix ?
+                        plainText("{{ lang._('They are restored automatically within a few seconds, and before every Apply.') }}") :
+                        plainText("{{ lang._("'Repair OpenVPN instance directives' is off, so the next start of this instance will be stopped.") }}"))
+                    ).show();
                 } else {
                     $("#client_auth_warning").hide();
+                }
+
+                var token = (enabled && saved && saved['instance'] === true) ? saved['token'] : null;
+                var token_labels = {
+                    'injected': ['good', "{{ lang._('on') }}"],
+                    'instance': ['warn', "{{ lang._("instance's Auth Token Lifetime in use") }}"],
+                    'missing': ['warn', "{{ lang._('off') }}"]
+                };
+                var token_label = !enabled ? ['off', "{{ lang._('disabled') }}"] :
+                    (token_labels.hasOwnProperty(token) ? token_labels[token] : ['off', "{{ lang._('unknown') }}"]);
+                $("#status_token").html(labelHtml(token_label[0], token_label[1]));
+                if (token === 'instance' || token === 'missing') {
+                    $("#token_info").show();
+                } else {
+                    $("#token_info").hide();
                 }
             });
         }
@@ -172,18 +312,31 @@
                     <td id="status_baseurl"></td>
                 </tr>
                 <tr>
-                    <td>{{ lang._('OpenVPN instance directives') }}</td>
+                    <td>
+                        {{ lang._('SSO enforcement (running instance)') }}
+                        <br/><small class="text-muted" id="status_enforcement_detail" style="overflow-wrap: anywhere;"></small>
+                    </td>
+                    <td id="status_enforcement"></td>
+                </tr>
+                <tr>
+                    <td>{{ lang._('Saved instance directives') }}</td>
                     <td id="status_client_auth"></td>
+                </tr>
+                <tr>
+                    <td>{{ lang._('Silent token renewal') }}</td>
+                    <td id="status_token"></td>
                 </tr>
             </tbody>
         </table>
+        <div id="enforcement_alert" class="alert alert-danger" style="display:none; max-width: 60em;"></div>
         <div id="baseurl_warning" class="alert alert-warning" style="display:none; max-width: 60em;"></div>
         <div id="port_conflict_warning" class="alert alert-danger" style="display:none; max-width: 60em;"></div>
         <div class="alert alert-info" style="max-width: 60em;">
             {{ lang._("The listener row only proves the service is listening on this firewall. Reachability from the internet additionally needs a WAN firewall rule for the listen port, and public DNS pointing at this firewall. Test it from outside your own network: connecting to the public address from inside requires NAT reflection. The daemon serves only /oauth2/... paths, so a 404 on the root URL means it is working.") }}
         </div>
-        <div id="client_auth_warning" class="alert alert-warning" style="display:none; max-width: 60em;">
-            {{ lang._("The selected OpenVPN instance is missing 'management-client-auth', 'auth-user-pass-optional' or the 'auth-gen-token ... external-auth' token directive. Without the first, OpenVPN never asks this service to authorize client connects. Without the second, OpenVPN drops certificate-only clients during TLS negotiation with 'Auth Username/Password was not provided by peer' before this service is ever consulted. Without the third, OpenVPN judges auth tokens itself, rejects them at the first renegotiation, and clients fall back to a browser login about once an hour. The instance's Options field offers none of these and drops them whenever that instance is saved; the token directive additionally requires the instance's own 'Auth Token Lifetime' field to be empty. Press Save below to repair and restart the instance (this drops its active tunnels), or disable 'Repair OpenVPN instance flag' under Advanced to manage them yourself.") }}
+        <div id="client_auth_warning" class="alert alert-warning" style="display:none; max-width: 60em;"></div>
+        <div id="token_info" class="alert alert-info" style="display:none; max-width: 60em;">
+            {{ lang._("Silent token renewal needs the 'auth-gen-token ... external-auth' directive on the selected instance. Without it, OpenVPN judges auth tokens itself, rejects them at the first renegotiation, and clients fall back to a browser login about once an hour. The plugin adds the directive only while 'Repair OpenVPN instance directives' under Advanced is on and the instance's own 'Auth Token Lifetime' field is empty: a value there emits a second 'auth-gen-token' line, so the plugin leaves its own out to keep the instance bootable. SSO enforcement does not depend on it.") }}
         </div>
     </div>
 </div>

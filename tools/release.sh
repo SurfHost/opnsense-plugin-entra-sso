@@ -84,6 +84,18 @@ echo "${FILES}" | grep -q 'rc\.d/openvpnauthoauth2' \
     || { echo '!!! rc script missing from the package' >&2; exit 1; }
 echo "${FILES}" | grep -q 'supervisor\.py' \
     || { echo '!!! supervisor.py missing from the package' >&2; exit 1; }
+echo "${FILES}" | grep -q 'enforcement\.py' \
+    || { echo '!!! enforcement.py missing from the package' >&2; exit 1; }
+# +POST_INSTALL.post must reach the generated post-install script, or an
+# update leaves the old supervisor running (pkg 2.8.4: -R prints the full
+# manifest of a package file, scripts included)
+if ! MANIFEST=$(pkg info -R -F "${PLUGIN_PKG}"); then
+    echo '!!! could not read the package manifest; check by hand that its' >&2
+    echo '    post-install script says "Restarting the openvpn-auth-oauth2 supervisor"' >&2
+elif ! echo "${MANIFEST}" | grep -q 'Restarting the openvpn-auth-oauth2 supervisor'; then
+    echo '!!! the post-install script lacks the supervisor restart (+POST_INSTALL.post)' >&2
+    exit 1
+fi
 if echo "${FILES}" | grep -Eq '__pycache__|\.pyc'; then
     echo '!!! stray Python bytecode in the package (plist ships everything in the tree)' >&2
     exit 1
