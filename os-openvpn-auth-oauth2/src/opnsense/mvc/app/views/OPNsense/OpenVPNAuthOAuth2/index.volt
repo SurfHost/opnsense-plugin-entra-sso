@@ -388,9 +388,6 @@
         <div id="enforcement_alert" class="alert alert-danger" style="display:none; max-width: 60em;"></div>
         <div id="baseurl_warning" class="alert alert-warning" style="display:none; max-width: 60em;"></div>
         <div id="port_conflict_warning" class="alert alert-danger" style="display:none; max-width: 60em;"></div>
-        <div class="alert alert-info" style="max-width: 60em;">
-            {{ lang._("The listener row only proves the service is listening on this firewall. Reachability from the internet additionally needs a WAN firewall rule for the listen port, and public DNS pointing at this firewall. Test it from outside your own network: connecting to the public address from inside requires NAT reflection. The daemon serves only /oauth2/... paths, so a 404 on the root URL means it is working.") }}
-        </div>
         <div id="client_auth_warning" class="alert alert-warning" style="display:none; max-width: 60em;"></div>
         <div id="token_info" class="alert alert-info" style="display:none; max-width: 60em;">
             {{ lang._("Silent token renewal needs the 'auth-gen-token ... external-auth' directive on the selected instance. Without it, OpenVPN judges auth tokens itself, rejects them at the first renegotiation, and clients fall back to a browser login about once an hour. The plugin adds the directive only while 'Repair OpenVPN instance directives' under Advanced is on and the instance's own 'Auth Token Lifetime' field is empty: a value there emits a second 'auth-gen-token' line, so the plugin leaves its own out to keep the instance bootable. SSO enforcement does not depend on it.") }}
