@@ -15,7 +15,7 @@
 # The repository also carries the openvpn-auth-oauth2 daemon itself, because
 # OPNsense does not build that port: without it, installing the plugin fails on
 # an unresolvable dependency. Mirror FreeBSD's own build (same name, version and
-# origin) by pointing DAEMON_PKG at a downloaded .pkg; see the README.
+# origin) by pointing DAEMON_PKG at a downloaded .pkg; see docs/MAINTAINING.md.
 #
 # Environment overrides:
 #   PLUGINS_SRC  opnsense/plugins checkout      (default /usr/plugins)
@@ -93,7 +93,7 @@ else
         https://pkg.freebsd.org/${ABI}/latest/All/openvpn-auth-oauth2-1.28.0_1.pkg
       pkg add /tmp/openvpn-auth-oauth2.pkg
 
-    See "The daemon dependency" in the README.
+    See "The daemon dependency" in docs/MAINTAINING.md.
 EOF
     exit 1
 fi

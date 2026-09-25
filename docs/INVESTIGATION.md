@@ -336,9 +336,8 @@ The fix keeps one invariant: while SSO is enabled, the protected instance may
 only run as an OpenVPN process whose loaded config provably contained a bare
 `management-client-auth` line, and nothing removes the directives
 automatically. The three mechanisms (pre-Apply hook, config watcher, SSO
-guard), the exposure that remains and the stop sequence are described in the
-README under
-[Fail-closed enforcement](../README.md#fail-closed-enforcement). How the guard
+guard), the exposure that remains and the stop sequence are described in
+[HOW-IT-WORKS.md](HOW-IT-WORKS.md#fail-closed-enforcement). How the guard
 proves a process: it reads the `.conf` until two reads agree, requires the
 bare directive, and compares the md5 with core's `.stat` written after this
 start (read under a non-blocking `LOCK_SH`, and only when it is newer than the
@@ -402,8 +401,9 @@ is logged under the tag `openvpn`.
 #### Hardware tests for fail-closed enforcement
 
 Run these after any change to the guard, the hook or the model, and after a
-core minor update (see the core contract checklist in the README's maintainer
-notes). Run `sh` first; root's tcsh cannot parse the setup.
+core minor update (see the
+[core contract checklist](MAINTAINING.md#core-contract-checklist)). Run `sh`
+first; root's tcsh cannot parse the setup.
 
 Setup, in a second SSH session:
 
@@ -578,8 +578,8 @@ Client profile: certificate-based profile exported from OPNsense, plus
      restart interrupted. An update restarts a running SSO service the same
      way, through the package's post-install script; should that not take,
      the old version keeps running until the service is restarted by hand
-     (README 3.3), coming from 1.4 without a guard and with the status panel
-     showing *not watched*;
+     (the README's Maintenance section), coming from 1.4 without a guard and
+     with the status panel showing *not watched*;
    - a race of a few milliseconds the guard cannot see: when two core runs
      overlap (an Apply during a per-instance restart) and the second
      regenerates the `.conf` between OpenVPN's config parse and its pidfile
@@ -621,8 +621,8 @@ Client profile: certificate-based profile exported from OPNsense, plus
 ## Roadmap
 
 1. Finish the scaffold into a working plugin; test on a 26.7 lab box
-   (procedure in the [README](../README.md)), using the `config.xml` workaround
-   for `management-client-auth`.
+   (procedure in [MAINTAINING.md](MAINTAINING.md#development-loop)), using the
+   `config.xml` workaround for `management-client-auth`.
 2. Upstream contributions, in order of leverage:
    - opnsense/core: **add `management-client-auth` to the instance
      `various_flags` OptionValues**, or a plugin hook before
