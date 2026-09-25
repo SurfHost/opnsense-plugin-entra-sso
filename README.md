@@ -476,13 +476,13 @@ browse from.
 Select **OpenVPN** in the same selector. It starts empty, and without a rule
 here clients get a tunnel but reach nothing. Add one rule:
 
-| Field | Value |
-|---|---|
-| **Action** | Pass |
-| **Version** | IPv4 |
-| **Protocol** | any (`TCP/UDP` blocks ping) |
-| **Source** | the tunnel network from step 2, e.g. `10.10.10.0/24` |
-| **Destination** | `LAN net` (an alias or a rule per network for several), or `any` for a full tunnel |
+| | Action | Version | Protocol | Source | Destination |
+|---|---|---|---|---|---|
+| **VPN clients** | Pass | IPv4 | any | `10.10.10.0/24` | `LAN net` |
+
+Use your own tunnel network from step 2 as **Source**. Keep **Protocol** at
+`any`, because `TCP/UDP` blocks ping. For several networks, use an alias or
+one rule per network; for a full tunnel (5.3), set **Destination** to `any`.
 
 ### 5.3 Optional: full tunnel
 
@@ -504,19 +504,15 @@ Sends all client traffic, not just the LAN, through the firewall.
 3. Go to **Firewall > NAT > Source NAT**, set **Mode** to **Hybrid Source NAT
    rule generation** and click **Apply**. If it already is **Manual Source NAT
    rule generation**, leave it.
-4. Click **+** and fill in:
+4. Click **+** and add this rule, with your own tunnel network as **Source
+   Address**:
 
-   | Field | Value |
-   |---|---|
-   | **Interface** | WAN (with several WANs, one rule each) |
-   | **Version** | IPv4 |
-   | **Protocol** | any |
-   | **Source Address** | the tunnel network, e.g. `10.10.10.0/24` |
-   | **Destination Address** | `any` (the default) |
-   | **Translate Source IP** | empty, which uses the WAN address |
-   | **Description** | e.g. `OpenVPN SSO full tunnel` |
+   | | Interface | Version | Protocol | Source Address | Destination Address | Translate Source IP |
+   |---|---|---|---|---|---|---|
+   | **OpenVPN SSO full tunnel** | WAN | IPv4 | any | `10.10.10.0/24` | any | empty |
 
-   Click **Save**, then **Apply**.
+   An empty **Translate Source IP** uses the WAN address. With several WANs,
+   add one rule per WAN. Click **Save**, then **Apply**.
 5. In the firewall shell, check that this prints a `nat on` line for your WAN
    device (use your own tunnel network):
 
