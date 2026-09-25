@@ -43,6 +43,7 @@ What each change needs after that:
 | `supervisor.py`, `enforcement.py` | `configctl openvpnauthoauth2 restart` |
 | `plugins.inc.d/openvpnauthoauth2.inc` (the pre-Apply hook) | nothing, `pluginctl` loads it on every call |
 | anything under `service/templates` | `configctl template reload OPNsense/OpenVPNAuthOAuth2`, then restart |
+| `login.gohtml` (the page after sign-in, one of those templates) | the template reload and restart above; after an edit to its style or script block, first run `python3 tools/csp-hash.py` on the workstation and commit the new hashes. The tool also takes a path, so `python3 tools/csp-hash.py --check /usr/local/etc/openvpn-auth-oauth2/login.gohtml` from a checkout on the box checks the copy configd rendered |
 | `actions.d` | the `configd` restart above |
 
 Useful checks on the box:
@@ -151,6 +152,16 @@ pkg add /tmp/openvpn-auth-oauth2.pkg
 ```
 
 Consequence: whenever you mirror a newer daemon, rebuild the plugin against it.
+
+The plugin also replaces the daemon's sign-in result page with its own
+`login.gohtml`, written against v1.28.0. Before mirroring a newer daemon,
+compare upstream's `internal/ui/index.gohtml` and the `Execute` calls in
+`internal/oauth2/handler.go` with that version: the page picks its success
+branch by the exact title `Access granted`, and anything it does not
+recognize falls back to a plain English page without the countdown. The
+header comment in `login.gohtml` lists the data the daemon passes, and why
+its inline style and script blocks must stay free of comments and of jinja
+and Go template syntax.
 
 ## Building and publishing a release
 

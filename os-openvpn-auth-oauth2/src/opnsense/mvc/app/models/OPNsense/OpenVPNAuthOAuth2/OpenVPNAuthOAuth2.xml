@@ -98,6 +98,17 @@
                 <Required>N</Required>
             </secret>
         </http>
+        <page>
+            <!-- the page after sign-in embeds the logo as this data URI, so
+                 the Mask keeps it to image types and the base64 alphabet;
+                 performValidation caps the size, because PCRE refuses a
+                 {m,n} quantifier above 65535 -->
+            <logo type="TextField">
+                <Mask>/^data:image\/(png|jpeg|svg\+xml|webp);base64,[A-Za-z0-9+\/]+={0,2}$/u</Mask>
+                <ValidationMessage>The logo must be a PNG, JPEG, SVG or WebP image.</ValidationMessage>
+                <Required>N</Required>
+            </logo>
+        </page>
         <daemon>
             <autoFixInstanceFlag type="BooleanField">
                 <Default>1</Default>

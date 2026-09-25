@@ -22,6 +22,10 @@ http:
   listen: "{% if ':' in listen_addr %}[{{ listen_addr }}]{% else %}{{ listen_addr }}{% endif %}:{{ cfg.http.listenPort|default('', true) }}"
   baseurl: {{ q(cfg.http.baseUrl|default('', true)) }}
   secret: {{ q(secret) }}
+  # the browser page after sign-in, a Go template that configd renders from
+  # login.gohtml next to this file (the logo is the only part it fills in);
+  # the daemon does not start when this file is missing or does not parse
+  template: "/usr/local/etc/openvpn-auth-oauth2/login.gohtml"
 {% if cfg.validation.validateIpAddr|default('', true) == '1' %}
   check:
     ipaddr: true

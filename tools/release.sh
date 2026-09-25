@@ -52,6 +52,13 @@ if [ "${STAMPED}" != "${VERSION}" ]; then
     exit 1
 fi
 
+# a stale CSP hash in the sign-in page fails silently in the browser
+# (unstyled page, countdown stuck at 10), so refuse it here
+if ! /usr/local/bin/python3 "${CHECKOUT}/tools/csp-hash.py" --check; then
+    echo "!!! login.gohtml CSP hashes are stale: run tools/csp-hash.py, commit, retag" >&2
+    exit 1
+fi
+
 # mirror the current FreeBSD build of the daemon
 DAEMON_VERSION=$(fetch -qo - "https://pkg.freebsd.org/${ABI}/latest/packagesite.pkg" \
     | tar -xO -f - packagesite.yaml \
@@ -86,6 +93,10 @@ echo "${FILES}" | grep -q 'supervisor\.py' \
     || { echo '!!! supervisor.py missing from the package' >&2; exit 1; }
 echo "${FILES}" | grep -q 'enforcement\.py' \
     || { echo '!!! enforcement.py missing from the package' >&2; exit 1; }
+# configd renders the file that http.template in the daemon config names
+# from this template; without it the daemon does not start
+echo "${FILES}" | grep -q 'templates/OPNsense/OpenVPNAuthOAuth2/login\.gohtml' \
+    || { echo '!!! login.gohtml missing from the package' >&2; exit 1; }
 # +POST_INSTALL.post must reach the generated post-install script, or an
 # update leaves the old supervisor running (pkg 2.8.4: -R prints the full
 # manifest of a package file, scripts included)

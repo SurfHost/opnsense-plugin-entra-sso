@@ -268,6 +268,63 @@
             });
         });
 
+        // the logo travels as a data URI in the hidden field the form has
+        // for it, so Save stores it with the rest. The picker follows core's
+        // 'file' field type, which itself stores bare base64 without the
+        // image type the page needs.
+        var logo_types = ['image/png', 'image/jpeg', 'image/svg+xml', 'image/webp'];
+        var logo_max_bytes = 65536; // LOGO_MAX_BYTES in the model
+        var logo_field = $("#openvpnauthoauth2\\.page\\.logo");
+        var logo_help = $("#help_block_openvpnauthoauth2\\.page\\.logo");
+        // row, label, field and help block, which a failed Save marks has-error;
+        // a refused file is marked the same way, a picked or removed logo clears it
+        var logo_row = $("*[id$='openvpnauthoauth2.page.logo']");
+        logo_field.after($("#logo_div").detach().show());
+
+        // setFormData fires change once it has filled the field
+        logo_field.change(function () {
+            var uri = $(this).val();
+            if (uri !== '') {
+                $("#logo_preview").attr('src', uri).show();
+            } else {
+                $("#logo_preview").removeAttr('src').hide();
+            }
+            $("#logo_remove").toggle(uri !== '');
+        });
+
+        $("#logo_div input[type=file]").change(function () {
+            var file = this.files[0];
+            // lets the same file be picked again, e.g. after Remove
+            this.value = '';
+            if (!file) {
+                return;
+            }
+            if (logo_types.indexOf(file.type) === -1) {
+                logo_row.addClass("has-error");
+                logo_help.text("{{ lang._('This file is not a PNG, JPEG, SVG or WebP image.') }}");
+                return;
+            }
+            // an empty file would become a data URI without data, which the model refuses
+            if (file.size === 0 || file.size > logo_max_bytes) {
+                logo_row.addClass("has-error");
+                logo_help.text("{{ lang._('This image is empty or larger than 64 KB. Choose another file.') }}");
+                return;
+            }
+            var reader = new FileReader();
+            reader.onload = function (event) {
+                logo_row.removeClass("has-error");
+                logo_field.val(event.target.result).change();
+                logo_help.text("{{ lang._('Click Save to store the logo.') }}");
+            };
+            reader.readAsDataURL(file);
+        });
+
+        $("#logo_remove").click(function () {
+            logo_row.removeClass("has-error");
+            logo_field.val('').change();
+            logo_help.text("{{ lang._('Click Save to remove the logo.') }}");
+        });
+
         $("#saveAct").click(function(){
             saveFormToEndpoint("/api/openvpnauthoauth2/settings/set", 'frm_general_settings', function(){
                 ajaxCall("/api/openvpnauthoauth2/service/reconfigure", {}, function(data,status) {
@@ -347,6 +404,18 @@
             <i class="fa fa-fw fa-gear"></i>
         </button>
     </span>
+    <div id="logo_div" style="display:none">
+        <img id="logo_preview" alt="" style="display:none; box-sizing: content-box; max-width: 200px; max-height: 48px; margin-bottom: 6px; padding: 4px; background: #fff; border: 1px solid #ddd; border-radius: 4px;">
+        <div>
+            <label class="btn btn-default" style="margin-bottom: 0;">
+                <i class="fa fa-fw fa-folder-o"></i> {{ lang._('Choose image') }}
+                <input type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp" style="display: none;">
+            </label>
+            <button id="logo_remove" type="button" class="btn btn-default" style="display:none">
+                <i class="fa fa-fw fa-trash-o"></i> {{ lang._('Remove') }}
+            </button>
+        </div>
+    </div>
     {{ partial("layout_partials/base_form",['fields':generalForm,'id':'frm_general_settings']) }}
     <div class="col-md-12">
         <hr/>

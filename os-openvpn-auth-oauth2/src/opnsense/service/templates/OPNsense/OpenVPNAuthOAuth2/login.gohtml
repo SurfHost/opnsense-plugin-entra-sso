@@ -1,0 +1,177 @@
+{#
+ # Copyright (c) 2026 SurfHost.nl
+ # SPDX-License-Identifier: MIT
+ #
+ # The page the openvpn-auth-oauth2 daemon shows in the browser after a
+ # sign-in. configd renders this file to
+ # /usr/local/etc/openvpn-auth-oauth2/login.gohtml, which http.template in
+ # openvpn-auth-oauth2.yml names. It replaces the daemon's built-in
+ # internal/ui/index.gohtml (upstream v1.28.0). The output is a Go template, so
+ # everything after the few jinja lines below sits in raw blocks. The only
+ # thing jinja adds is the logo from the settings page: {{ logo }} at the top
+ # of each card, empty when no logo is set.
+ #
+ # The logo is a data URI that the model limits to data:image/png, jpeg,
+ # svg+xml or webp in base64, up to 64 KB. The check below repeats that
+ # grammar, so not even a hand-edited config.xml can put markup or a Go action
+ # into the page, which the daemon would refuse to start on. The CSP allows
+ # it with img-src data:. The daemon reads the file only when it starts; Save
+ # on the settings page renders it and restarts the daemon.
+ #
+ # The daemon renders the output with text/template (no auto-escaping) and one
+ # of:
+ #   error     title "Access denied", message, errorID (64 hex characters)
+ #   selector  title, message, token, clientConfigProfiles; only with
+ #             openvpn.client-config.user-selector, which the plugin never sets
+ #   success   title "Access granted", message
+ # The success branch keys on that exact title, so data the page does not know
+ # falls through to a plain branch that shows title and message as given.
+ # At startup the daemon renders it once with title, message and errorID all
+ # empty. A parse or render error there, or a missing file, stops the daemon.
+ #
+ # The text is Dutch. The script swaps every element that has a data-en
+ # attribute to that English text when the browser's first language is not
+ # Dutch, so text edits need no new hash. On the success page it counts down
+ # from 10, then tries window.close(); browsers refuse that for a tab with more
+ # than one history entry, so half a second later it shows the "close this
+ # window" line again.
+ #
+ # The Content-Security-Policy allows the one inline style block and the one
+ # inline script block below by their sha256. After editing either, run
+ # tools/csp-hash.py, or browsers silently drop the block: an unstyled page, or
+ # a countdown stuck at 10. Keep jinja syntax, template actions and comments
+ # out of both blocks; html/template, which upstream uses from v2.0.0 on,
+ # strips comments there and would break the hashes. The output must begin
+ # with the doctype line, because the daemon sets no Content-Type and Go
+ # sniffs it from the body.
+ #}
+{% set logo = helpers.getNodeByTag('OPNsense.OpenVPNAuthOAuth2.page.logo') %}
+{% if logo is string and logo is regex_match('^data:image/(png|jpeg|svg\\+xml|webp);base64,[A-Za-z0-9+/]+={0,2}\\Z') %}
+{%   set logo = '<img class="logo" src="' ~ logo|e ~ '" alt="">\n' %}
+{% else %}
+{%   set logo = '' %}
+{% endif %}
+{% raw %}<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data:; style-src 'sha256-vb0wDTDJKUW+E1slfK7bsgjVOFi2VQn0bDMwc1iw+oU='; script-src 'sha256-TV72sCyqNbGMGJVjU0SJxw+QJGv4Ew9ASwxekiZMvuQ='; base-uri 'none'; form-action 'self'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenVPN SSO</title>
+<link rel="icon" href="../assets/favicon.svg">
+<style>
+:root{color-scheme:light dark;--bg:#f4f5f7;--card:#fff;--fg:#1c2127;--muted:#5f6b76;--line:#e1e4e8;--ok:#1a7f37;--ok-bg:#dcf2e3;--err:#cf222e;--err-bg:#fde4e4;--info:#0969da;--info-bg:#ddeafd;--shadow:0 1px 2px rgba(16,24,40,.05),0 8px 24px rgba(16,24,40,.06)}
+@media (prefers-color-scheme:dark){:root{--bg:#0d1117;--card:#161b22;--fg:#e6edf3;--muted:#8b949e;--line:#2a313a;--ok:#3fb950;--ok-bg:rgba(63,185,80,.14);--err:#f85149;--err-bg:rgba(248,81,73,.14);--info:#58a6ff;--info-bg:rgba(88,166,255,.14);--shadow:none}}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{min-height:100vh;min-height:100dvh;display:grid;place-items:center;padding:16px;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}
+.card{position:relative;overflow:hidden;width:100%;max-width:420px;padding:32px 28px 28px;background:var(--card);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);text-align:center}
+.logo{display:block;box-sizing:content-box;max-width:200px;max-height:48px;margin:0 auto 20px;object-fit:contain}
+@media (prefers-color-scheme:dark){.logo{padding:8px 12px;border-radius:8px;background:#fff}}
+.icon{display:grid;place-items:center;width:48px;height:48px;margin:0 auto 16px;border-radius:50%;color:var(--ok);background:var(--ok-bg)}
+.err .icon{color:var(--err);background:var(--err-bg)}
+.info .icon{color:var(--info);background:var(--info-bg)}
+.icon svg{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:2.25;stroke-linecap:round;stroke-linejoin:round}
+h1{margin:0;font-size:19px;font-weight:600;line-height:1.3;letter-spacing:-.01em}
+p{margin:6px 0 0;color:var(--muted)}
+#n{color:var(--fg);font-weight:600;font-variant-numeric:tabular-nums}
+.id{margin-top:20px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);text-align:left;font-size:12px}
+.id span{display:block;margin-bottom:2px;color:var(--muted)}
+.id code{display:block;font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;color:var(--fg);word-break:break-all;-webkit-user-select:all;user-select:all}
+form{display:grid;gap:8px;margin-top:20px}
+.btn{padding:10px 12px;font:inherit;color:var(--fg);background:var(--card);border:1px solid var(--line);border-radius:8px;cursor:pointer}
+.btn:hover{border-color:var(--info)}
+.btn:focus-visible{outline:2px solid var(--info);outline-offset:2px}
+.bar{display:none;position:absolute;left:0;right:0;bottom:0;height:3px;background:var(--ok-bg)}
+.bar i{display:block;height:100%;background:var(--ok);transform-origin:left;animation:shrink 10s linear forwards}
+.run .bar{display:block}
+@keyframes shrink{from{transform:scaleX(1)}to{transform:scaleX(0)}}
+@media (prefers-reduced-motion:reduce){.run .bar{display:none}}
+@media (max-width:360px){.card{padding:28px 20px 24px}}
+</style>
+</head>
+<body>
+{{- if .errorID }}
+<main class="card err">
+{% endraw %}{{ logo }}{% raw %}<div class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="24" height="24"><path d="M7.5 7.5l9 9M16.5 7.5l-9 9"/></svg></div>
+<h1 data-en="Access denied">Toegang geweigerd</h1>
+<p data-en="Please contact your administrator.">Neem contact op met uw beheerder.</p>
+<div class="id"><span data-en="Error ID">Fout-ID</span><code>{{ html .errorID }}</code></div>
+</main>
+{{- else if .clientConfigProfiles }}
+<main class="card info">
+{% endraw %}{{ logo }}{% raw %}<div class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="24" height="24"><path d="M12 11v6M12 7.5h.01"/></svg></div>
+<h1 data-en="Select profile">Selecteer profiel</h1>
+<p data-en="Please select your client configuration profile.">Selecteer uw clientconfiguratieprofiel.</p>
+<form method="POST" action="./profile-submit">
+<input type="hidden" name="token" value="{{ html .token }}">
+{{- range .clientConfigProfiles }}
+<input class="btn" type="submit" name="profile" value="{{ html . }}">
+{{- end }}
+</form>
+</main>
+{{- else if eq .title "Access granted" }}
+<main class="card ok">
+{% endraw %}{{ logo }}{% raw %}<div class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="24" height="24"><path d="M5.5 12.5l4 4 9-9"/></svg></div>
+<h1 data-en="Access granted">Toegang verleend</h1>
+<p id="done" data-en="You can close this window now.">U kunt dit venster nu sluiten.</p>
+<p id="count" hidden><span data-en="This page will close automatically in">Deze pagina zal automatisch sluiten in</span> <b id="n">10</b></p>
+<div class="bar" aria-hidden="true"><i></i></div>
+</main>
+{{- else }}
+<main class="card info" lang="en">
+{% endraw %}{{ logo }}{% raw %}<div class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="24" height="24"><path d="M12 11v6M12 7.5h.01"/></svg></div>
+<h1>{{ html .title }}</h1>
+<p>{{ html .message }}</p>
+</main>
+{{- end }}
+<script>
+(function () {
+  var doc = document;
+  var lang = (navigator.languages && navigator.languages[0]) || navigator.language || "";
+  if (lang && !/^nl(-|$)/i.test(lang)) {
+    doc.documentElement.lang = "en";
+    var texts = doc.querySelectorAll("[data-en]");
+    for (var i = 0; i < texts.length; i++) {
+      texts[i].textContent = texts[i].getAttribute("data-en");
+    }
+  }
+  var num = doc.getElementById("n");
+  if (!num) {
+    return;
+  }
+  var card = doc.querySelector(".card");
+  var count = doc.getElementById("count");
+  var done = doc.getElementById("done");
+  var end = Date.now() + 10000;
+  done.hidden = true;
+  count.hidden = false;
+  card.classList.add("run");
+  function tick() {
+    var left = Math.ceil((end - Date.now()) / 1000);
+    if (left > 0) {
+      num.textContent = left;
+      setTimeout(tick, end - Date.now() - (left - 1) * 1000);
+      return;
+    }
+    var msg = {type: "CONNECT_SUCCESS"};
+    try {
+      if (window.appEvent) {
+        window.appEvent.postMessage(msg);
+      } else {
+        window.parent.postMessage(msg, "*");
+      }
+    } catch (e) {}
+    window.close();
+    setTimeout(function () {
+      card.classList.remove("run");
+      count.hidden = true;
+      done.hidden = false;
+    }, 500);
+  }
+  tick();
+})();
+</script>
+</body>
+</html>
+{% endraw %}

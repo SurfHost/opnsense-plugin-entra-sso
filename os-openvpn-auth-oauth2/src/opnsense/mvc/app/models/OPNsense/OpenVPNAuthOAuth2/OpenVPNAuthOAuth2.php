@@ -32,6 +32,13 @@ class OpenVPNAuthOAuth2 extends BaseModel
     public const REQUIRED_FLAGS = ['management-client-auth', 'auth-user-pass-optional'];
 
     /**
+     * Largest logo for the page after sign-in, in bytes of image. It is
+     * stored as a data URI in config.xml, so it also lands in every config
+     * backup and in each page the daemon serves.
+     */
+    public const LOGO_MAX_BYTES = 65536;
+
+    /**
      * The auth token directive injected alongside REQUIRED_FLAGS.
      * 'external-auth' makes OpenVPN hand a presented token to the SSO daemon
      * for validation instead of judging it itself; together with the daemon's
@@ -208,6 +215,14 @@ class OpenVPNAuthOAuth2 extends BaseModel
         if ($enabled && (string)$this->http->tlsEnabled === '1' && (string)$this->http->certificate === '') {
             $messages->appendMessage(
                 new Message(gettext('Select a certificate or disable TLS on the listener.'), 'http.certificate')
+            );
+        }
+        // the Mask checks the data URI but cannot cap its length
+        $logo = (string)$this->page->logo;
+        $comma = strpos($logo, ',');
+        if ($comma !== false && strlen(base64_decode(substr($logo, $comma + 1))) > self::LOGO_MAX_BYTES) {
+            $messages->appendMessage(
+                new Message(gettext('The logo must be 64 KB or smaller.'), 'page.logo')
             );
         }
 

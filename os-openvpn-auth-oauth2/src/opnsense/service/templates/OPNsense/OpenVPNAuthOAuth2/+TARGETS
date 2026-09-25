@@ -1,3 +1,4 @@
+login.gohtml:/usr/local/etc/openvpn-auth-oauth2/login.gohtml
 openvpn-auth-oauth2.yml:/usr/local/etc/openvpn-auth-oauth2/openvpn-auth-oauth2.yml
 supervisor.conf:/usr/local/etc/openvpn-auth-oauth2/supervisor.conf
 rc.conf.d:/etc/rc.conf.d/openvpnauthoauth2

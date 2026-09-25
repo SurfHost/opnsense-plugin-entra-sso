@@ -46,6 +46,51 @@ status panel's *Silent token renewal* row then reads *instance's Auth Token
 Lifetime in use*. Why the native field cannot be used is explained in
 [INVESTIGATION.md](INVESTIGATION.md#openvpn-instance-prerequisites).
 
+### The page after sign-in
+
+The browser page at the end of a sign-in comes from the plugin, not from the
+daemon's built-in page: the daemon config sets `http.template` to
+`/usr/local/etc/openvpn-auth-oauth2/login.gohtml`, a Go template that configd
+renders next to the daemon config, from `login.gohtml` in the plugin's
+configd templates. The daemon reads it only when it starts, so **Save** on
+the SSO page renders it again and restarts the daemon, and the daemon does
+not start at all when the file is missing or does not parse.
+
+- **Logo**: optional, set under **Page after sign-in** on the SSO page. The
+  page shows it at the top of the card in every state, always on white: the
+  card is white in light mode and in dark mode the logo sits on a white
+  plate, so use a logo made for a light background. It is stored in
+  config.xml as a data URI (`data:image/...;base64,...`, at most 64 KB of
+  image) and written into the rendered page, so the page needs no extra
+  request for it. The data URI is about a third larger than the file, up to
+  about 87 KB, and each config backup (**System > Configuration > History**)
+  holds a copy of it too. The model accepts only PNG, JPEG, SVG and WebP in
+  base64, and the template checks that again, so no markup or Go template
+  action can reach the page. The page's Content-Security-Policy allows it
+  with `img-src 'self' data:`.
+- **Success**: *Toegang verleend* and *Deze pagina zal automatisch sluiten in
+  10*, counting down to 1 with a thin bar that runs out alongside. At 0 the
+  page asks the browser to close it.
+- **Failure**: *Toegang geweigerd*, *Neem contact op met uw beheerder.* and a
+  *Fout-ID*, without a countdown. The ID is the `error_id` of the daemon's log
+  line that holds the actual reason, so search the log for it.
+- The text is Dutch. When the browser's first language is not Dutch, a script
+  on the page switches it to English. The daemon's own translations for
+  German, French and others are not used.
+
+Whether the page can close itself is up to the browser. A page may only close
+a tab that a script opened, or a tab with a single entry in its history, and
+the VPN client opens the sign-in URL as a normal tab. A sign-in that passes
+straight through (Entra remembers the account and only redirects) leaves one
+entry, so the tab closes, and the browser window with it when it was the only
+tab. An interactive sign-in (account picker, password, MFA, *Stay signed
+in?*) adds entries, and the browser then ignores the request without an
+error; a click on a button would not change that. Half a second after the
+attempt the page therefore replaces the countdown with *U kunt dit venster
+nu sluiten.* The page also sends the OpenVPN web-auth `CONNECT_SUCCESS`
+message, which lets a client that shows the sign-in in its own window close
+that window.
+
 ## Fail-closed enforcement
 
 Everything SSO does hangs on one directive, `management-client-auth`. OpenVPN

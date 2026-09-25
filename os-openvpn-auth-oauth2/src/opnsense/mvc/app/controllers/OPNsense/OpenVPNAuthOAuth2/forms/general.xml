@@ -116,6 +116,16 @@
     </field>
     <field>
         <type>header</type>
+        <label>Page after sign-in</label>
+    </field>
+    <field>
+        <id>openvpnauthoauth2.page.logo</id>
+        <label>Logo</label>
+        <type>hidden</type>
+        <help>Optional. Shown at the top of the page the browser displays after sign-in. PNG, JPEG, SVG or WebP, up to 64 KB.</help>
+    </field>
+    <field>
+        <type>header</type>
         <label>Advanced</label>
     </field>
     <field>

@@ -424,6 +424,7 @@ Go to **VPN > OpenVPN > SSO (OAuth2 / Entra ID)**, fill in and click **Save**:
 | **Encryption secret** | click the gear button next to the field, or paste the output of `openssl rand -hex 16` |
 | **Enable TLS** | ticked |
 | **Certificate** | **vpn.example.com (ACME Client)** from 4.1, or the certificate you imported |
+| **Logo** (section **Page after sign-in**) | optional: **Choose image** picks a PNG, JPEG, SVG or WebP of up to 64 KB for the top of the page the browser shows after sign-in |
 | **Repair OpenVPN instance directives** (section **Advanced**) | ticked (the default) |
 
 Saving starts the SSO service and restarts the instance once with the SSO
@@ -550,7 +551,10 @@ Sends all client traffic, not just the LAN, through the firewall.
 2. Connect. On Windows, use the **OpenVPN GUI**, not `openvpn.exe` or a
    service: only the GUI opens the browser.
 3. Sign in on the Microsoft page that opens, with MFA if your tenant requires
-   it. The browser shows a success page and the tunnel comes up.
+   it. The browser shows *Toegang verleend* (*Access granted* when the
+   browser's language is not Dutch) and the tunnel comes up. The page counts
+   down from 10 and then closes itself if the browser allows it, which after
+   an interactive sign-in it usually does not; close the tab yourself then.
 
 Reconnects are silent. The browser mainly returns after a restart of the SSO
 service or when Entra revokes the session.
