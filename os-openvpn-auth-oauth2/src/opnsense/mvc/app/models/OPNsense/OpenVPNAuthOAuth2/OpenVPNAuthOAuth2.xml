@@ -122,9 +122,15 @@
             </autoFixInstanceFlag>
             <!-- injected into the instance as
                  'auth-gen-token {lifetime} external-auth'; requires the
-                 instance's own Auth Token Lifetime field to stay empty -->
+                 instance's own Auth Token Lifetime field to stay empty.
+                 OpenVPN counts the lifetime from the first sign-in, renewals
+                 do not extend it, and the daemon denies an expired token
+                 outright, so every client signs in again in the browser at
+                 the first renegotiation past it. The daemon refreshes the
+                 session against the identity provider at every
+                 renegotiation anyway, hence the long default. -->
             <authTokenLifetime type="IntegerField">
-                <Default>86400</Default>
+                <Default>604800</Default>
                 <MinimumValue>600</MinimumValue>
                 <MaximumValue>604800</MaximumValue>
                 <ValidationMessage>Auth token lifetime must be between 600 and 604800 seconds.</ValidationMessage>
@@ -145,5 +151,21 @@
                 <Required>Y</Required>
             </logLevel>
         </daemon>
+        <!-- applied by the plugin's export type on VPN > OpenVPN > Client
+             Export (library/OPNsense/OpenVPN/SsoOpenVPN.php) -->
+        <client>
+            <dropPersistTun type="BooleanField">
+                <Default>1</Default>
+                <Required>Y</Required>
+            </dropPersistTun>
+            <dropPersistKey type="BooleanField">
+                <Default>1</Default>
+                <Required>Y</Required>
+            </dropPersistKey>
+            <authNocache type="BooleanField">
+                <Default>1</Default>
+                <Required>Y</Required>
+            </authNocache>
+        </client>
     </items>
 </model>

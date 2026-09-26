@@ -532,8 +532,8 @@ Sends all client traffic, not just the LAN, through the firewall.
    | Field | Value |
    |---|---|
    | **Remote Access Server** | your instance, e.g. `OpenVPN SSO udp:1194` |
-   | **Export type** | `File Only` |
-   | **Hostname** | `vpn.example.com`, replacing the pre-filled address; no port here |
+   | **Export type** | `File Only (SSO, openvpn-auth-oauth2)` |
+   | **Hostname** | `vpn.example.com`, pre-filled with the host of the **Public base URL** by **Save** on the SSO page; no port here |
    | **Port** | `1194` |
    | **Validate server subject** | ticked |
    | **Windows Certificate System Store** | unticked |
@@ -543,7 +543,10 @@ Sends all client traffic, not just the LAN, through the firewall.
    icon (a cloud with an arrow) on the **OpenVPN client** row. Do not use the
    *(none)* or *OpenVPN server* rows.
 3. Open the file and check that it has a `<cert>` and a `<key>` block. It has
-   no `auth-user-pass` line; that is correct here.
+   no `auth-user-pass` line and no `persist-tun` line; that is correct here.
+   The SSO export type applies the **Client profile** settings from the SSO
+   page: without `persist-tun`, a reconnect that needs a new sign-in can load
+   the sign-in page even on a full tunnel.
 
 ### 6.2 First login
 
@@ -556,8 +559,9 @@ Sends all client traffic, not just the LAN, through the firewall.
    down from 10 and then closes itself if the browser allows it, which after
    an interactive sign-in it usually does not; close the tab yourself then.
 
-Reconnects are silent. The browser mainly returns after a restart of the SSO
-service or when Entra revokes the session.
+Reconnects are silent. The browser returns when the **Auth token lifetime**
+(Advanced on the SSO page, 7 days by default) runs out, when Entra revokes
+the session, or after a restart of the SSO service.
 
 ---
 
@@ -654,7 +658,8 @@ configctl openvpnauthoauth2 details
 | Export: `Client certificate not found` | You used the *(none)* row, or the certificate has no Common Name (its **Name** reads `/C=NL`). Recreate it with one. |
 | Export: `Certificate does not belong to server CA` | You used the server certificate row; use the **OpenVPN client** row. |
 | `Options error: No client-side authentication method is specified` | The profile has no `<cert>`/`<key>` block. Re-export from the **OpenVPN client** row. |
-| Client log in red: `DEPRECATED OPTION: --persist-key` or `may cache passwords in memory` | Harmless. To hide them, delete the `persist-key` line from the profile and add a line `auth-nocache`. |
+| Client log in red: `DEPRECATED OPTION: --persist-key` or `may cache passwords in memory` | Harmless. Profiles from the SSO export type do not produce them; in an older profile delete the `persist-key` line and add a line `auth-nocache`. |
+| Browser opens after a reconnect but cannot load the page, and the internet stays down until you disconnect | A full-tunnel profile with `persist-tun` keeps its default route in a tunnel that carries nothing until the sign-in completes. Re-export with the SSO export type, or delete the `persist-tun` line. |
 | Client hangs at `TLS key negotiation failed to occur within 60 seconds` | The client does not reach the server: check the WAN rule for UDP 1194. If a packet capture (filter `1194`) shows replies going to a different MAC than the requests came from, tick **Disable reply-to** on the rule (advanced mode in the rule dialog), or globally under **Firewall > Settings > Advanced**. |
 | Server log: `Auth Username/Password was not provided by peer`, no browser | The instance lacks `auth-user-pass-optional`. Check that **Saved instance directives** reads *present*. If the line under **SSO enforcement** says *auth-user-pass-optional missing*, restart the instance on **System > Diagnostics > Services**. |
 | Idle tunnel drops about every 2 minutes (`Inactivity timeout (--ping-restart)`), or server log `--keepalive option is missing` | Set **Keep alive interval** `10` and **Keep alive timeout** `60` on the instance (advanced mode), then **Save** and **Apply**. |

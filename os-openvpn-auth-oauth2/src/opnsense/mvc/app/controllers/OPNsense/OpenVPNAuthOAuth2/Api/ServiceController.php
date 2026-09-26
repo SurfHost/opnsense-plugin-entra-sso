@@ -9,6 +9,8 @@ namespace OPNsense\OpenVPNAuthOAuth2\Api;
 
 use OPNsense\Base\ApiMutableServiceControllerBase;
 use OPNsense\Core\Backend;
+use OPNsense\Core\Config;
+use OPNsense\OpenVPN\Export;
 
 class ServiceController extends ApiMutableServiceControllerBase
 {
@@ -46,9 +48,59 @@ class ServiceController extends ApiMutableServiceControllerBase
     {
         if ($this->request->isPost()) {
             $this->repairInstanceFlag();
+            $this->presetClientExport();
         }
 
         return parent::reconfigureAction();
+    }
+
+    /**
+     * Preset the Hostname of the Client Export form for the protected
+     * instance with the host of the public base URL: the browser and the
+     * VPN client reach the same firewall. Core keeps that field per server
+     * in its export presets (OPNsense.OpenVPNExport) and fills the form from
+     * them; for an instance the field starts empty. Only an empty preset is
+     * filled, so a name typed there stays, whatever it is. The export type
+     * is deliberately not preset: a preset naming the plugin's type would
+     * outlive the plugin and leave core's page with a type it no longer has.
+     * Never lets a failure here get in the way of the reconfigure.
+     */
+    private function presetClientExport()
+    {
+        $model = $this->getModel();
+        if ((string)$model->general->enabled !== '1') {
+            return;
+        }
+        $uuid = (string)$model->general->vpnInstance;
+        if (!preg_match('/^[0-9a-fA-F-]{36}$/', $uuid)) {
+            return;
+        }
+        $host = $model->baseUrlHost();
+        if ($host === '') {
+            return;
+        }
+
+        try {
+            $export = new Export();
+            $server = $export->getServer($uuid);
+            if ((string)$server->hostname !== '') {
+                return;
+            }
+            $server->hostname = $host;
+            // validates the preset (HostnameField) before anything is written
+            $export->serializeToConfig();
+            Config::getInstance()->save(['description' => sprintf(
+                'openvpn-auth-oauth2 preset the client export hostname of OpenVPN instance %s',
+                $uuid
+            )]);
+        } catch (\Throwable $e) {
+            openlog('openvpn-auth-oauth2', LOG_ODELAY, LOG_DAEMON);
+            syslog(LOG_WARNING, sprintf(
+                'could not preset the client export of OpenVPN instance %s: %s',
+                $uuid,
+                $e->getMessage()
+            ));
+        }
     }
 
     /**

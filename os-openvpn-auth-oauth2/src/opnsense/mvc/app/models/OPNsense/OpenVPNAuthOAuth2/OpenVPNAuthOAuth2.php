@@ -53,6 +53,18 @@ class OpenVPNAuthOAuth2 extends BaseModel
     }
 
     /**
+     * Host part of the public base URL, without IPv6 brackets, or '' when
+     * there is none. The browser and the VPN client reach the same firewall,
+     * so this is what the client profile's remote line should carry.
+     * @return string
+     */
+    public function baseUrlHost()
+    {
+        $host = parse_url((string)$this->http->baseUrl, PHP_URL_HOST);
+        return is_string($host) ? trim($host, '[]') : '';
+    }
+
+    /**
      * Add every REQUIRED_FLAGS entry, plus the tokenDirective() line, to the
      * selected instance's various_flags directly in config.xml, bypassing the
      * closed OptionField the GUI enforces. The OpenVPN config generator emits

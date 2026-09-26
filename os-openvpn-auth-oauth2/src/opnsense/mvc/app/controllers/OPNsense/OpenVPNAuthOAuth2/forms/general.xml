@@ -139,7 +139,7 @@
         <label>Auth token lifetime (s)</label>
         <type>text</type>
         <advanced>true</advanced>
-        <help>Maximum age of an OpenVPN auth token before the SSO daemon must fall back to a full OIDC refresh. Injected into the instance as 'auth-gen-token ... external-auth' by the repair above; the instance's own Auth Token Lifetime field must stay empty, otherwise the injection is skipped to avoid a duplicate directive.</help>
+        <help>How long a client may stay connected since its browser sign-in before it must sign in again. OpenVPN counts this from the first sign-in and the hourly renewals do not extend it; at the first renegotiation past it the session is refused and the client reconnects with a browser prompt, which on a full-tunnel profile only works with 'persist-tun' removed (see Client profile). The daemon re-checks the session with the identity provider at every renegotiation regardless, so a long lifetime costs little. Injected into the instance as 'auth-gen-token ... external-auth' by the repair above; the instance's own Auth Token Lifetime field must stay empty, otherwise the injection is skipped to avoid a duplicate directive.</help>
     </field>
     <field>
         <id>openvpnauthoauth2.daemon.passthroughEnabled</id>
@@ -154,5 +154,27 @@
         <type>dropdown</type>
         <advanced>true</advanced>
         <help>Verbosity of the daemon log.</help>
+    </field>
+    <field>
+        <type>header</type>
+        <label>Client profile</label>
+    </field>
+    <field>
+        <id>openvpnauthoauth2.client.dropPersistTun</id>
+        <label>Remove persist-tun</label>
+        <type>checkbox</type>
+        <help>Applied by the export type 'File Only (SSO, openvpn-auth-oauth2)' on VPN &gt; OpenVPN &gt; Client Export. With 'persist-tun' the client keeps the tunnel adapter and its routes across a reconnect; when that reconnect needs a browser sign-in, a full-tunnel client has its default route in a tunnel that carries nothing yet, cannot reach the identity provider, and stays stuck until it is disconnected by hand. Without it the routes are removed on reconnect and the sign-in page loads over the normal connection.</help>
+    </field>
+    <field>
+        <id>openvpnauthoauth2.client.dropPersistKey</id>
+        <label>Remove persist-key</label>
+        <type>checkbox</type>
+        <help>OpenVPN 2.7 ignores 'persist-key' and logs a warning about it on every start; the core export writes it regardless.</help>
+    </field>
+    <field>
+        <id>openvpnauthoauth2.client.authNocache</id>
+        <label>Add auth-nocache</label>
+        <type>checkbox</type>
+        <help>Stops the client's warning about cached passwords on every reconnect. Pushed auth tokens are exempt, so silent renewal keeps working. Core only writes it for instances with an authentication source, which an SSO instance does not have.</help>
     </field>
 </form>

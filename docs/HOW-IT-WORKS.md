@@ -307,19 +307,18 @@ with the same Common Name, so people who connect at the same time need
 certificates of their own: create one per user with a **Description** and
 **Common Name** of their own.
 
-A working exported profile looks like this. There is no `proto` line for UDP:
-the protocol rides on the `remote` line.
+A working profile from the plugin's export type looks like this. There is no
+`proto` line for UDP: the protocol rides on the `remote` line.
 
 ```
 dev tun
-persist-tun
-persist-key
 client
 resolv-retry infinite
 remote vpn.example.com 1194 udp
 lport 0
 verify-x509-name "..." subject
 remote-cert-tls server
+auth-nocache
 <ca>...</ca>
 <cert>...</cert>
 <key>...</key>
@@ -327,19 +326,35 @@ remote-cert-tls server
 
 Clicking the download icon on the Client Export page also saves the form as
 that server's export presets. There is no separate Save button and no
-confirmation.
+confirmation. Save on the SSO page fills one of those presets for the
+protected instance: an empty hostname gets the host of the public base URL,
+since the browser and the VPN client reach the same firewall. A hostname
+someone typed there stays. The export type is not preset on purpose: a
+preset naming the plugin's type would outlive the plugin and leave core's
+page with a type it no longer has.
 
-The two red lines in the OpenVPN GUI log that the optional profile edit
-removes are cosmetic, and the exporter offers no way to avoid them:
+Core's own export types write `persist-tun` and `persist-key` unconditionally
+and offer `auth-nocache` only for instances with an authentication source.
+The plugin therefore ships an export type of its own, *File Only (SSO,
+openvpn-auth-oauth2)* (`library/OPNsense/OpenVPN/SsoOpenVPN.php`, picked up
+by core's ExportFactory like its own types), which is core's *File Only* with
+the edits from the **Client profile** section of the SSO page applied:
 
-- `DEPRECATED OPTION: --persist-key option ignored`: the exporter writes
-  `persist-key` unconditionally, and OpenVPN 2.7 ignores the option entirely.
-- `WARNING: this configuration may cache passwords in memory -- use the
-  auth-nocache option`: printed whenever the client touches its cached
-  credentials, which in this setup are the auth token, never a password.
-  Pushed auth tokens are exempt from `auth-nocache`, so silent renewal keeps
-  working; after adding it, confirm the first renegotiation (roughly an hour
-  in) still passes without a browser.
+- `persist-tun` removed. With it the client keeps the tunnel adapter and the
+  pushed routes across a reconnect. A reconnect that needs a browser sign-in
+  (the auth token lifetime ran out, Entra revoked the session) then leaves a
+  full-tunnel client with its default route in a tunnel that carries nothing
+  yet: the sign-in page never loads, the server times the pending auth out
+  after 180 s, and the client loops until someone disconnects it. Without
+  `persist-tun` the routes go with the old session and the page loads over
+  the normal connection.
+- `persist-key` removed: `DEPRECATED OPTION: --persist-key option ignored`,
+  OpenVPN 2.7 ignores the option entirely.
+- `auth-nocache` added: stops `WARNING: this configuration may cache
+  passwords in memory -- use the auth-nocache option`, printed whenever the
+  client touches its cached credentials, which in this setup are the auth
+  token, never a password. Pushed auth tokens are exempt from
+  `auth-nocache`, so silent renewal keeps working.
 
 ### Full tunnel
 
