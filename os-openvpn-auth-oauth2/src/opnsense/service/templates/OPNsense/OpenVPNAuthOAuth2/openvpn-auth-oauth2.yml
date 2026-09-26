@@ -3,12 +3,14 @@
  # Key names verified against the upstream Configuration wiki (v1.28, Aug 2026).
  # Careful: configd hands EMPTY config.xml elements to jinja as None, not '',
  # so every optional leaf goes through |default('', true) (the boolean makes
- # it also replace None). Free-form values are escaped for double-quoted YAML.
+ # it also replace None). Free-form values are escaped for double-quoted YAML,
+ # line breaks included: the parser folds a raw one into a space, so the
+ # daemon would start with a silently changed value.
  # Secrets end up in this file. configd chmods rendered files to the parent
  # directory's mode minus the execute bits, so the rc script (start_precmd)
  # and supervisor.py both force the directory to 0700 and this file to 0600.
  #}
-{% macro q(value) %}"{{ value|replace('\\', '\\\\')|replace('"', '\\"') }}"{% endmacro %}
+{% macro q(value) %}"{{ value|replace('\\', '\\\\')|replace('"', '\\"')|replace('\r', '\\r')|replace('\n', '\\n') }}"{% endmacro %}
 {% if helpers.exists('OPNsense.OpenVPNAuthOAuth2.general.enabled') and OPNsense.OpenVPNAuthOAuth2.general.enabled == '1' %}
 {% set cfg = OPNsense.OpenVPNAuthOAuth2 %}
 {% set instance_uuid = cfg.general.vpnInstance|default('', true) %}
@@ -41,7 +43,7 @@ oauth2:
 {% if issuer != '' %}
   issuer: {{ q(issuer) }}
 {% else %}
-  issuer: "https://login.microsoftonline.com/{{ cfg.entra.tenantId|default('', true) }}/v2.0"
+  issuer: {{ q('https://login.microsoftonline.com/' ~ cfg.entra.tenantId|default('', true) ~ '/v2.0') }}
 {% endif %}
   client:
     id: {{ q(cfg.entra.clientId|default('', true)) }}

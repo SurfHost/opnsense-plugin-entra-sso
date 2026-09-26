@@ -126,7 +126,9 @@ class OpenVPNAuthOAuth2 extends BaseModel
                 $kept = [];
                 $present = false;
                 foreach ($flags as $flag) {
-                    if (strpos($flag, 'auth-gen-token') === 0) {
+                    // the bare directive or one with arguments, not
+                    // 'auth-gen-token-secret', which is a directive of its own
+                    if ($flag === 'auth-gen-token' || strpos($flag, 'auth-gen-token ') === 0) {
                         if ($flag !== $wanted) {
                             $changed = true;
                             continue;

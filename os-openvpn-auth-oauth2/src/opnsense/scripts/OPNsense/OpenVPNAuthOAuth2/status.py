@@ -9,6 +9,7 @@
     OpenVPN prerequisite state.
 """
 
+import ipaddress
 import json
 import os
 import socket
@@ -97,9 +98,18 @@ def daemon_running():
 def listener_up(address, port, tls_enabled=False):
     """Probe the callback listener. When TLS is on, complete a handshake:
     a bare connect-and-close makes the Go server log a TLS handshake error
-    on every poll, and a completed handshake is the truer health signal."""
+    on every poll, and a completed handshake is the truer health signal.
+    Only an address of this firewall is probed: the settings page accepts
+    any IP address, and this runs as root on every poll, so anything else
+    would turn the status panel into a port probe of the far host, which a
+    user with no more than this page's ACL could steer. The daemon cannot
+    bind such an address anyway, so 'not listening' is the truth."""
     if address in ('', '0.0.0.0', '::'):
         address = '127.0.0.1'
+    else:
+        local = local_addresses()
+        if local and canonical_ip(address) not in local:
+            return False
     try:
         with socket.create_connection((address, int(port)), timeout=1) as sock:
             if tls_enabled:
@@ -137,9 +147,20 @@ def port_listeners(port):
     return entries
 
 
+def canonical_ip(text):
+    """The address in the spelling ifconfig and getaddrinfo use, zone
+    dropped; any other text unchanged, so a hostname never matches an
+    address."""
+    try:
+        return str(ipaddress.ip_address(text.split('%', 1)[0]))
+    except ValueError:
+        return text
+
+
 def local_addresses():
-    """Every IP configured on this firewall, so the base URL can be compared
-    against them. Empty on failure, which callers treat as 'unknown'."""
+    """Every IP configured on this firewall, so the base URL and the listen
+    address can be compared against them. Empty on failure, which callers
+    treat as 'unknown'."""
     addresses = set()
     try:
         result = subprocess.run(
@@ -151,7 +172,7 @@ def local_addresses():
     for line in result.stdout.decode('utf-8', 'replace').splitlines():
         fields = line.split()
         if len(fields) >= 2 and fields[0] in ('inet', 'inet6'):
-            addresses.add(fields[1].split('%')[0])
+            addresses.add(canonical_ip(fields[1]))
     return addresses
 
 
@@ -164,8 +185,15 @@ def base_url_status(base_url, listen_port, tls_enabled):
         status['problems'].append('No public base URL configured.')
         return status
 
-    parts = urlsplit(base_url)
-    host = parts.hostname
+    try:
+        parts = urlsplit(base_url)
+        host = parts.hostname
+    except ValueError:
+        # the model only checks the scheme; urlsplit raises on a URL such
+        # as https://[::1 (unbalanced bracket), which must not take the
+        # whole status probe down
+        status['problems'].append('The base URL cannot be parsed.')
+        return status
     scheme = parts.scheme
     try:
         port = parts.port or (443 if scheme == 'https' else 80)

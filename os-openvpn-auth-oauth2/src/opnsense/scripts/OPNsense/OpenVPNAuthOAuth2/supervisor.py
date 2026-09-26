@@ -140,7 +140,10 @@ KILL_GRACE = 2
 RESTOP_INTERVAL = 5
 INSTANCE_RECHECK = 5
 HELPER_TIMEOUT = 60
-START_TIMEOUT = 120
+# below configctl's own 120s socket timeout (core configd_ctl.py), past which
+# configctl exits 0 with 'error in configd communication' on stderr: the
+# guard has to give up first for a stalled start to be seen as one
+START_TIMEOUT = 110
 # how long a repair start waits while core holds the instance's .stat lock
 START_LOCK_WAIT = 30
 # a repair a previous supervisor life left unfinished is taken up again
@@ -223,10 +226,23 @@ def socket_alive(path, attempts=2, delay=0.2):
 def listener_pid(path):
     """PID owning the unix listener bound to path, or None when unknown.
     Used to tell our daemon's pass-through proxy apart from a fresh OpenVPN
-    bind, which stat() alone cannot do."""
+    bind, which stat() alone cannot do.
+
+    Listening sockets only (-l), matched on the LOCAL ADDRESS column alone.
+    FreeBSD 15's sockstat (usr.bin/sockstat/main.c) prints a client
+    connected to the listener with '??' there and '-> path' under FOREIGN
+    ADDRESS, so a GUI status poll (a configctl-spawned script, hence a
+    young process that sockstat lists early) must not be taken for the
+    path's owner. -w is required: without it the address columns are fixed
+    at 21 characters and the 67-character instance path is cut, so nothing
+    would ever match. A renamed socket keeps the path it was bound to, so
+    after the swap OpenVPN's listener reports the GUI path as well; the
+    first match is the right one because sockstat walks kern.file, which
+    lists the newest process first: the daemon is newer than the OpenVPN
+    it proxies, and a restarted OpenVPN is newer than the daemon."""
     try:
         result = subprocess.run(
-            ['sockstat', '-u'], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            ['sockstat', '-u', '-l', '-w'], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
             timeout=5, check=False,
         )
     except (OSError, subprocess.SubprocessError):
@@ -236,7 +252,7 @@ def listener_pid(path):
     for line in result.stdout.decode('utf-8', 'replace').splitlines():
         fields = line.split()
         # USER COMMAND PID FD PROTO LOCAL_ADDRESS ...
-        if len(fields) >= 6 and path in fields[5:]:
+        if len(fields) >= 6 and fields[5] == path:
             try:
                 return int(fields[2])
             except ValueError:
@@ -245,11 +261,15 @@ def listener_pid(path):
 
 
 def owned_by_daemon(path):
-    """True when the listener at path demonstrably belongs to our daemon."""
+    """True when the listener at path demonstrably belongs to our daemon,
+    False when it demonstrably does not (no daemon of ours runs, or another
+    process holds the listener), None when sockstat gave no answer."""
     if daemon_proc is None or daemon_proc.poll() is not None:
         return False
     pid = listener_pid(path)
-    return pid is not None and pid == daemon_proc.pid
+    if pid is None:
+        return None
+    return pid == daemon_proc.pid
 
 
 def unlink_if_same(path, expected_ident):
@@ -303,6 +323,10 @@ def _write_secure(path, data, mode):
         flags |= os.O_BINARY
     fd = os.open(tmp_path, flags, mode)
     try:
+        if hasattr(os, 'fchmod'):
+            # O_CREAT applies the mode to a new file only; a leftover .tmp
+            # keeps whatever mode it had
+            os.fchmod(fd, mode)
         os.write(fd, data)
     finally:
         os.close(fd)
@@ -711,6 +735,14 @@ class Guard(threading.Thread):
                 pass
             log(syslog.LOG_ERR, f'SSO guard: {" ".join(proc.args)} did not finish within {timeout}s')
         self.helper = None
+        if purpose == 'start' and (not finished or proc.returncode != 0):
+            # the instance the guard stopped would otherwise stay down with
+            # the status row on a plain 'not running' and nothing that says
+            # why; the hold logs the alert with the fix, and the next
+            # enforced process (Apply) clears it
+            self._hold('configctl openvpn start ' + (
+                'did not finish' if not finished else f'exited with status {proc.returncode}'))
+            return
         if purpose != 'repair' and self.after_helper != 'repair':
             return
         self.after_helper = None
@@ -1295,11 +1327,13 @@ def run(conf, guard):
                     log(syslog.LOG_NOTICE, 'OpenVPN restart detected, re-running socket swap')
                     break
                 if proxy_ident is None:
-                    if owned_by_daemon(gui_socket):
+                    owned = owned_by_daemon(gui_socket)
+                    if owned:
                         proxy_ident = current  # daemon bound its proxy late; adopt it
-                    else:
+                    elif owned is False:
                         log(syslog.LOG_NOTICE, 'OpenVPN re-bound the GUI path, re-running socket swap')
                         break
+                    # no answer from sockstat: looked at again next second
                 elif current != proxy_ident:
                     log(syslog.LOG_NOTICE, 'OpenVPN re-bound the GUI path, re-running socket swap')
                     break
@@ -1311,10 +1345,15 @@ def run(conf, guard):
             # a freshly bound OpenVPN socket may sit at the GUI path; move it
             # to safety BEFORE stopping the daemon, whose teardown would
             # unlink that path. Applies to shutdown too, where a service stop
-            # can coincide with an OpenVPN restart.
+            # can coincide with an OpenVPN restart. Only on positive evidence
+            # that the socket is not our proxy: swapping the proxy over the
+            # live OpenVPN socket would unlink the latter, and SSO would stay
+            # down until the instance is restarted. When sockstat gives no
+            # answer the swap is left to the next cycle, which finds a live
+            # OpenVPN socket at the GUI path anyway (SIGKILL unlinks nothing).
             current = socket_ident(gui_socket)
             if current is not None and current != proxy_ident \
-                    and not owned_by_daemon(gui_socket) and socket_alive(gui_socket):
+                    and owned_by_daemon(gui_socket) is False and socket_alive(gui_socket):
                 swap_socket(gui_socket, swapped_socket)
             stop_daemon(graceful=False)
         else:

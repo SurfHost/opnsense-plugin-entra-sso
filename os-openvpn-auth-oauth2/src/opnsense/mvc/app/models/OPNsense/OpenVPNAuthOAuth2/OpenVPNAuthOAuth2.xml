@@ -23,30 +23,36 @@
                 <Required>N</Required>
             </vpnInstance>
         </general>
+        <!-- every Mask carries the D modifier: without it PCRE's '$' also
+             matches right before a trailing newline. Core's Regex validator
+             compares the match against the whole value, which catches that
+             for text, but PHP compares all-digit strings as numbers, so an
+             all-digit value plus newline would pass and reach the daemon's
+             YAML and the sign-in page -->
         <entra>
             <tenantId type="TextField">
-                <Mask>/^([0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}|[a-zA-Z0-9][a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})$/u</Mask>
+                <Mask>/^([0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}|[a-zA-Z0-9][a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})$/uD</Mask>
                 <ValidationMessage>Tenant ID must be a GUID or a tenant domain (e.g. contoso.onmicrosoft.com).</ValidationMessage>
                 <Required>N</Required>
             </tenantId>
             <clientId type="TextField">
-                <Mask>/^\S{1,255}$/u</Mask>
+                <Mask>/^\S{1,255}$/uD</Mask>
                 <ValidationMessage>Client ID must not contain whitespace.</ValidationMessage>
                 <Required>N</Required>
             </clientId>
             <clientSecret type="TextField">
-                <Mask>/^[^\r\n]{0,512}$/u</Mask>
+                <Mask>/^[^\r\n]{0,512}$/uD</Mask>
                 <ValidationMessage>The client secret must not contain line breaks.</ValidationMessage>
                 <Required>N</Required>
             </clientSecret>
             <issuer type="TextField">
-                <Mask>/^https:\/\/.+$/u</Mask>
+                <Mask>/^https:\/\/.+$/uD</Mask>
                 <ValidationMessage>The issuer must be a https URL.</ValidationMessage>
                 <Required>N</Required>
             </issuer>
             <scopes type="TextField">
                 <Default>openid profile offline_access</Default>
-                <Mask>/^[a-zA-Z0-9 ._:\/-]{0,512}$/u</Mask>
+                <Mask>/^[a-zA-Z0-9 ._:\/-]{0,512}$/uD</Mask>
                 <ValidationMessage>Scopes must be a space-separated list without line breaks.</ValidationMessage>
                 <Required>N</Required>
             </scopes>
@@ -81,7 +87,7 @@
                 <Required>Y</Required>
             </listenPort>
             <baseUrl type="TextField">
-                <Mask>/^https?:\/\/.+$/u</Mask>
+                <Mask>/^https?:\/\/.+$/uD</Mask>
                 <ValidationMessage>Base URL must be a http(s) URL reachable by the user's browser.</ValidationMessage>
                 <Required>N</Required>
             </baseUrl>
@@ -93,7 +99,7 @@
                 <Required>N</Required>
             </certificate>
             <secret type="TextField">
-                <Mask>/^[0-9a-zA-Z]{16}([0-9a-zA-Z]{8})?([0-9a-zA-Z]{8})?$/u</Mask>
+                <Mask>/^[0-9a-zA-Z]{16}([0-9a-zA-Z]{8})?([0-9a-zA-Z]{8})?$/uD</Mask>
                 <ValidationMessage>HTTP secret must be 16, 24 or 32 alphanumeric characters.</ValidationMessage>
                 <Required>N</Required>
             </secret>
@@ -104,7 +110,7 @@
                  performValidation caps the size, because PCRE refuses a
                  {m,n} quantifier above 65535 -->
             <logo type="TextField">
-                <Mask>/^data:image\/(png|jpeg|svg\+xml|webp);base64,[A-Za-z0-9+\/]+={0,2}$/u</Mask>
+                <Mask>/^data:image\/(png|jpeg|svg\+xml|webp);base64,[A-Za-z0-9+\/]+={0,2}$/uD</Mask>
                 <ValidationMessage>The logo must be a PNG, JPEG, SVG or WebP image.</ValidationMessage>
                 <Required>N</Required>
             </logo>
