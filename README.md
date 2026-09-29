@@ -309,9 +309,7 @@ NetworkManager, can no longer connect.
    ```
 
    This is the shared [SurfHost repository](https://github.com/SurfHost/opnsense-repo),
-   which also carries the other SurfHost plugins. A firewall that added the
-   old address (`.../opnsense-plugin-entra-sso/...`) is switched over by the
-   1.7.1 update; running the command above does the same by hand.
+   which also carries the other SurfHost plugins.
 
 ### 3.2 Install the plugin
 
