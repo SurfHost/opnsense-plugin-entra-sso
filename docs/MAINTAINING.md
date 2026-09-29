@@ -191,13 +191,13 @@ re-fetches the file: `pkg update` refreshes the package catalogue, not the
 repository configuration.
 
 **The old address.** Up to 1.7 the repository was this repo's own `gh-pages`
-(`https://surfhost.github.io/opnsense-plugin-entra-sso/${ABI}`). From 1.7.1,
-`+POST_INSTALL.post` rewrites any repository file on the firewall that still
-names that address, and `publish-repo.sh` keeps mirroring this plugin there
-(with the new `surfhost.conf` and [`tools/moved.html`](../tools/moved.html) at
-its root) so boxes that have not updated yet still find it. Set
-`LEGACY_MIRROR=0` to skip the mirror; remove it once nothing uses the old
-address.
+(`https://surfhost.github.io/opnsense-plugin-entra-sso/${ABI}`). It is frozen
+at 1.7.1: that release, the new `surfhost.conf` and a "moved" page stay there
+and nothing is published to it any more. A firewall still pointing at it
+updates to 1.7.1, whose `+POST_INSTALL.post` rewrites its repository file to
+the shared repository, and follows the new address from then on. Keep that
+rewrite in `+POST_INSTALL.post` and never delete the old `gh-pages` branch,
+or such a firewall is stranded on 1.7.1.
 
 Bump `PLUGIN_VERSION` in
 [`os-openvpn-auth-oauth2/Makefile`](../os-openvpn-auth-oauth2/Makefile) before

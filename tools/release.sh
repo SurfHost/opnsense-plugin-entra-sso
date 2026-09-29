@@ -13,11 +13,9 @@
 # daemon (version discovered from the branch metadata, so a rolled version
 # never 404s), builds and stages, verifies the package contents and the
 # frozen daemon dependency, and only then publishes to the shared SurfHost
-# repository (SurfHost/opnsense-repo) and, as a bridge, to the old address on
-# this repo's gh-pages. The interactive moments are those two pushes: enter
-# SurfHost and paste a fine-grained PAT (Contents: write on
-# SurfHost/opnsense-repo and SurfHost/opnsense-plugin-entra-sso) as the
-# password each time, and revoke the token afterwards. The GitHub release itself is created from a workstation, since
+# repository (SurfHost/opnsense-repo). The single interactive moment is that
+# push: enter SurfHost and paste a fine-grained PAT (Contents: write on
+# SurfHost/opnsense-repo) as the password, and revoke the token afterwards. The GitHub release itself is created from a workstation, since
 # gh is not available on OPNsense.
 
 set -eu
@@ -129,7 +127,7 @@ echo "==> verified: files ok, dependency openvpn-auth-oauth2 ${DAEMON_VERSION}"
 git config --global user.name >/dev/null 2>&1 || git config --global user.name "SurfHost"
 git config --global user.email >/dev/null 2>&1 || git config --global user.email "hans@surfhost.nl"
 
-echo "==> publishing: enter SurfHost and paste the PAT at each git prompt (two pushes)"
+echo "==> publishing: enter SurfHost and paste the PAT at the git prompt"
 ( cd "${CHECKOUT}" && env DAEMON_PKG="${DAEMON_PKG}" STAGE="${STAGE}" PUBLISH=1 sh ./tools/publish-repo.sh )
 
 echo "==> surfhost.conf as served by Pages:"

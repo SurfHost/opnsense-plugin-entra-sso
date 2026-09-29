@@ -22,9 +22,6 @@
 # Environment overrides:
 #   PLUGINS_SRC  opnsense/plugins checkout      (default /usr/plugins)
 #   STAGE        staging directory              (default /tmp/surfhost-repo)
-#   PAGES_CLONE  clone of the OLD gh-pages      (default /tmp/surfhost-pages)
-#   REPO_URL     this repo, for the old gh-pages (default the GitHub HTTPS URL)
-#   LEGACY_MIRROR  set to 0 to stop publishing to the old address
 #   DAEMON_PKG   openvpn-auth-oauth2 .pkg to mirror alongside the plugin
 #   RELEASE      set to 0 to skip the GitHub release step entirely
 #   RELEASE_NOTES  markdown file with the release notes for that step
@@ -37,11 +34,8 @@ PLUGIN_SUBDIR=os-openvpn-auth-oauth2
 
 PLUGINS_SRC=${PLUGINS_SRC:-/usr/plugins}
 STAGE=${STAGE:-/tmp/surfhost-repo}
-PAGES_CLONE=${PAGES_CLONE:-/tmp/surfhost-pages}
-REPO_URL=${REPO_URL:-https://github.com/SurfHost/opnsense-plugin-entra-sso.git}
 PUBLISH=${PUBLISH:-0}
 PUBLISH_SH=https://raw.githubusercontent.com/SurfHost/opnsense-repo/main/tools/publish.sh
-CONF_URL=https://raw.githubusercontent.com/SurfHost/opnsense-repo/main/surfhost.conf
 
 SRC_DIR=$(cd "$(dirname "$0")/.." && pwd)
 ABI=$(pkg config abi)
@@ -134,30 +128,6 @@ fetch -qo /tmp/publish.sh "${PUBLISH_SH}"
 # word splitting on purpose: staged file names carry no spaces
 # shellcheck disable=SC2086
 sh /tmp/publish.sh ${STAGED_PKGS}
-
-# Bridge for firewalls that still point at the old address: keep publishing
-# this plugin there as well, with the NEW surfhost.conf at its root and a
-# "moved" page, until the boxes have moved (1.7.1's post-install step
-# rewrites their repository file). LEGACY_MIRROR=0 skips it; drop this block
-# once nothing uses the old address any more.
-if [ "${LEGACY_MIRROR:-1}" = "1" ]; then
-    echo "==> mirroring to the old address (gh-pages of ${REPO_URL})"
-    rm -rf "${PAGES_CLONE:?}"
-    git clone --branch gh-pages --depth 1 "${REPO_URL}" "${PAGES_CLONE}"
-    mkdir -p "${PAGES_CLONE}/${ABI}"
-    rm -f "${PAGES_CLONE:?}/${ABI:?}"/*
-    cp "${STAGE}/${ABI}"/* "${PAGES_CLONE}/${ABI}/"
-    fetch -qo "${PAGES_CLONE}/surfhost.conf" "${CONF_URL}"
-    cp "${SRC_DIR}/tools/moved.html" "${PAGES_CLONE}/index.html"
-    cd "${PAGES_CLONE}"
-    git add -A
-    if git diff --cached --quiet; then
-        echo "==> old address: nothing changed"
-    else
-        git commit -m "Publish $(basename "${PKGFILE}") for ${ABI} (bridge to opnsense-repo)"
-        git push
-    fi
-fi
 echo "==> published; clients pick it up after 'pkg update'"
 
 # Publishing the package repository is only half a release. GitHub's Releases
