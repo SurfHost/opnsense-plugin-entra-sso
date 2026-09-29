@@ -3,14 +3,16 @@
 # Copyright (c) 2026 SurfHost.nl
 # SPDX-License-Identifier: MIT
 #
-# Build os-openvpn-auth-oauth2 and publish it to the SurfHost package
-# repository served by GitHub Pages.
+# Build os-openvpn-auth-oauth2 and publish it to the shared SurfHost package
+# repository (SurfHost/opnsense-repo, served by GitHub Pages at
+# https://surfhost.github.io/opnsense-repo/${ABI}) with that repository's
+# tools/publish.sh, which replaces only this plugin's packages there.
 #
 # Run this ON an OPNsense box (FreeBSD): package building needs the FreeBSD
 # toolchain, and `pkg repo` must run on the same ABI the packages target.
 #
 #   ./tools/publish-repo.sh              # build + stage, print next steps
-#   PUBLISH=1 ./tools/publish-repo.sh    # build + stage + push to gh-pages
+#   PUBLISH=1 ./tools/publish-repo.sh    # build + stage + publish
 #
 # The repository also carries the openvpn-auth-oauth2 daemon itself, because
 # OPNsense does not build that port: without it, installing the plugin fails on
@@ -20,8 +22,9 @@
 # Environment overrides:
 #   PLUGINS_SRC  opnsense/plugins checkout      (default /usr/plugins)
 #   STAGE        staging directory              (default /tmp/surfhost-repo)
-#   PAGES_CLONE  gh-pages clone used for push   (default /tmp/surfhost-pages)
-#   REPO_URL     git remote for the push        (default the GitHub HTTPS URL)
+#   PAGES_CLONE  clone of the OLD gh-pages      (default /tmp/surfhost-pages)
+#   REPO_URL     this repo, for the old gh-pages (default the GitHub HTTPS URL)
+#   LEGACY_MIRROR  set to 0 to stop publishing to the old address
 #   DAEMON_PKG   openvpn-auth-oauth2 .pkg to mirror alongside the plugin
 #   RELEASE      set to 0 to skip the GitHub release step entirely
 #   RELEASE_NOTES  markdown file with the release notes for that step
@@ -37,6 +40,8 @@ STAGE=${STAGE:-/tmp/surfhost-repo}
 PAGES_CLONE=${PAGES_CLONE:-/tmp/surfhost-pages}
 REPO_URL=${REPO_URL:-https://github.com/SurfHost/opnsense-plugin-entra-sso.git}
 PUBLISH=${PUBLISH:-0}
+PUBLISH_SH=https://raw.githubusercontent.com/SurfHost/opnsense-repo/main/tools/publish.sh
+CONF_URL=https://raw.githubusercontent.com/SurfHost/opnsense-repo/main/surfhost.conf
 
 SRC_DIR=$(cd "$(dirname "$0")/.." && pwd)
 ABI=$(pkg config abi)
@@ -68,10 +73,9 @@ rm -rf "${STAGE:?}/${ABI}"
 mkdir -p "${STAGE}/${ABI}"
 cp "${PKGFILE}" "${STAGE}/${ABI}/"
 
-# The repository must always carry the daemon: publishing replaces the ABI
-# directory wholesale, so omitting it would delete the dependency and break
-# every install. Prefer an explicit file, otherwise regenerate one from the
-# locally installed package.
+# The repository must always carry the daemon: OPNsense does not build it,
+# so without it every install fails on an unresolvable dependency. Prefer an
+# explicit file, otherwise regenerate one from the locally installed package.
 DAEMON_PKG=${DAEMON_PKG:-}
 if [ -n "${DAEMON_PKG}" ] && [ -f "${DAEMON_PKG}" ]; then
     cp "${DAEMON_PKG}" "${STAGE}/${ABI}/"
@@ -109,32 +113,51 @@ if [ "${PUBLISH}" != "1" ]; then
 $(ls -1 "${STAGE}/${ABI}" | sed 's/^/      /')
 
     to publish by hand:
-      git clone --branch gh-pages --depth 1 ${REPO_URL} ${PAGES_CLONE}
-      mkdir -p ${PAGES_CLONE}/${ABI}
-      cp ${STAGE}/${ABI}/* ${PAGES_CLONE}/${ABI}/
-      cp ${SRC_DIR}/tools/surfhost.conf ${PAGES_CLONE}/surfhost.conf
-      cd ${PAGES_CLONE} && git add -A && git commit -m 'Publish ${PORTNAME}' && git push
+      fetch -o /tmp/publish.sh ${PUBLISH_SH}
+      sh /tmp/publish.sh <the .pkg files above, not packagesite.pkg or data.pkg>
 EOF
     exit 0
 fi
 
-echo "==> publishing to gh-pages"
-rm -rf "${PAGES_CLONE}"
-git clone --branch gh-pages --depth 1 "${REPO_URL}" "${PAGES_CLONE}"
-mkdir -p "${PAGES_CLONE}/${ABI}"
-rm -f "${PAGES_CLONE}/${ABI:?}"/*
-cp "${STAGE}/${ABI}"/* "${PAGES_CLONE}/${ABI}/"
-# the repo config users fetch lives at the Pages root; publishing it from here
-# keeps tools/surfhost.conf the single source of truth
-cp "${SRC_DIR}/tools/surfhost.conf" "${PAGES_CLONE}/surfhost.conf"
-cd "${PAGES_CLONE}"
-git add -A
-if git diff --cached --quiet; then
-    echo "==> nothing changed"
-    exit 0
+# The packages themselves, not the metadata `pkg repo` generated above: the
+# shared repository regenerates its catalogue over every plugin it carries.
+STAGED_PKGS=""
+for FILE in "${STAGE}/${ABI}"/*.pkg; do
+    case "$(basename "${FILE}")" in
+    packagesite.*|data.*|meta.*|filesite.*|digests.*) continue ;;
+    esac
+    STAGED_PKGS="${STAGED_PKGS} ${FILE}"
+done
+
+echo "==> publishing to the shared SurfHost repository (SurfHost/opnsense-repo)"
+fetch -qo /tmp/publish.sh "${PUBLISH_SH}"
+# word splitting on purpose: staged file names carry no spaces
+# shellcheck disable=SC2086
+sh /tmp/publish.sh ${STAGED_PKGS}
+
+# Bridge for firewalls that still point at the old address: keep publishing
+# this plugin there as well, with the NEW surfhost.conf at its root and a
+# "moved" page, until the boxes have moved (1.7.1's post-install step
+# rewrites their repository file). LEGACY_MIRROR=0 skips it; drop this block
+# once nothing uses the old address any more.
+if [ "${LEGACY_MIRROR:-1}" = "1" ]; then
+    echo "==> mirroring to the old address (gh-pages of ${REPO_URL})"
+    rm -rf "${PAGES_CLONE:?}"
+    git clone --branch gh-pages --depth 1 "${REPO_URL}" "${PAGES_CLONE}"
+    mkdir -p "${PAGES_CLONE}/${ABI}"
+    rm -f "${PAGES_CLONE:?}/${ABI:?}"/*
+    cp "${STAGE}/${ABI}"/* "${PAGES_CLONE}/${ABI}/"
+    fetch -qo "${PAGES_CLONE}/surfhost.conf" "${CONF_URL}"
+    cp "${SRC_DIR}/tools/moved.html" "${PAGES_CLONE}/index.html"
+    cd "${PAGES_CLONE}"
+    git add -A
+    if git diff --cached --quiet; then
+        echo "==> old address: nothing changed"
+    else
+        git commit -m "Publish $(basename "${PKGFILE}") for ${ABI} (bridge to opnsense-repo)"
+        git push
+    fi
 fi
-git commit -m "Publish $(basename "${PKGFILE}") for ${ABI}"
-git push
 echo "==> published; clients pick it up after 'pkg update'"
 
 # Publishing the package repository is only half a release. GitHub's Releases

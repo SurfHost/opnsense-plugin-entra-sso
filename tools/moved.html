@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SurfHost OPNsense plugins have moved</title>
+<meta http-equiv="refresh" content="15; url=https://surfhost.github.io/opnsense-repo/">
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; line-height: 1.6;
+         max-width: 46rem; margin: 3rem auto; padding: 0 1rem; }
+  code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  pre { background: rgba(127,127,127,.12); padding: 1rem; border-radius: .5rem; overflow-x: auto; }
+</style>
+</head>
+<body>
+<h1>This repository has moved</h1>
+<p>The SurfHost OPNsense plugins, including os-openvpn-auth-oauth2, are now published at
+<a href="https://surfhost.github.io/opnsense-repo/">surfhost.github.io/opnsense-repo</a>.</p>
+<p>Firewalls that update os-openvpn-auth-oauth2 to 1.7.1 or later switch over by themselves.
+On any other firewall, run this in a root shell:</p>
+<pre>fetch -o /usr/local/etc/pkg/repos/surfhost.conf \
+    https://surfhost.github.io/opnsense-repo/surfhost.conf
+pkg update</pre>
+<p>This address keeps serving os-openvpn-auth-oauth2 for a while, so nothing breaks in the meantime.</p>
+</body>
+</html>

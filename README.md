@@ -304,9 +304,14 @@ NetworkManager, can no longer connect.
 2. Run:
 
    ```sh
-   fetch -o /usr/local/etc/pkg/repos/surfhost.conf https://surfhost.github.io/opnsense-plugin-entra-sso/surfhost.conf
+   fetch -o /usr/local/etc/pkg/repos/surfhost.conf https://surfhost.github.io/opnsense-repo/surfhost.conf
    pkg update
    ```
+
+   This is the shared [SurfHost repository](https://github.com/SurfHost/opnsense-repo),
+   which also carries the other SurfHost plugins. A firewall that added the
+   old address (`.../opnsense-plugin-entra-sso/...`) is switched over by the
+   1.7.1 update; running the command above does the same by hand.
 
 ### 3.2 Install the plugin
 
@@ -592,7 +597,8 @@ instance, and OpenVPN then refuses every client. To clear them:
 
 1. On **System > Firmware > Plugins**, use the remove action on its row (not
    `pkg delete`).
-2. Remove the daemon and the repository in the shell:
+2. Remove the daemon and the repository in the shell (keep `surfhost.conf`
+   if the firewall runs other SurfHost plugins):
 
    ```sh
    pkg delete openvpn-auth-oauth2

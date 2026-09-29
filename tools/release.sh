@@ -12,10 +12,12 @@
 # It clones the v<version> tag, mirrors the current FreeBSD build of the
 # daemon (version discovered from the branch metadata, so a rolled version
 # never 404s), builds and stages, verifies the package contents and the
-# frozen daemon dependency, and only then publishes. The single interactive
-# moment is the gh-pages push: enter SurfHost and paste a fine-grained PAT
-# (Contents: write, this repo only) as the password, and revoke the token
-# afterwards. The GitHub release itself is created from a workstation, since
+# frozen daemon dependency, and only then publishes to the shared SurfHost
+# repository (SurfHost/opnsense-repo) and, as a bridge, to the old address on
+# this repo's gh-pages. The interactive moments are those two pushes: enter
+# SurfHost and paste a fine-grained PAT (Contents: write on
+# SurfHost/opnsense-repo and SurfHost/opnsense-plugin-entra-sso) as the
+# password each time, and revoke the token afterwards. The GitHub release itself is created from a workstation, since
 # gh is not available on OPNsense.
 
 set -eu
@@ -26,7 +28,7 @@ REPO=https://github.com/SurfHost/opnsense-plugin-entra-sso.git
 CHECKOUT=/root/entra-sso
 DAEMON_PKG=/root/openvpn-auth-oauth2.pkg
 STAGE=${STAGE:-/tmp/surfhost-repo}
-PAGES=https://surfhost.github.io/opnsense-plugin-entra-sso
+PAGES=https://surfhost.github.io/opnsense-repo
 
 ABI=$(pkg config abi)
 echo "==> releasing ${TAG} for ${ABI}"
@@ -106,6 +108,9 @@ if ! MANIFEST=$(pkg info -R -F "${PLUGIN_PKG}"); then
 elif ! echo "${MANIFEST}" | grep -q 'Restarting the openvpn-auth-oauth2 supervisor'; then
     echo '!!! the post-install script lacks the supervisor restart (+POST_INSTALL.post)' >&2
     exit 1
+elif ! echo "${MANIFEST}" | grep -q 'to the shared SurfHost repository'; then
+    echo '!!! the post-install script lacks the repository move (+POST_INSTALL.post)' >&2
+    exit 1
 fi
 if echo "${FILES}" | grep -Eq '__pycache__|\.pyc'; then
     echo '!!! stray Python bytecode in the package (plist ships everything in the tree)' >&2
@@ -124,7 +129,7 @@ echo "==> verified: files ok, dependency openvpn-auth-oauth2 ${DAEMON_VERSION}"
 git config --global user.name >/dev/null 2>&1 || git config --global user.name "SurfHost"
 git config --global user.email >/dev/null 2>&1 || git config --global user.email "hans@surfhost.nl"
 
-echo "==> publishing: enter SurfHost and paste the PAT at the git prompt"
+echo "==> publishing: enter SurfHost and paste the PAT at each git prompt (two pushes)"
 ( cd "${CHECKOUT}" && env DAEMON_PKG="${DAEMON_PKG}" STAGE="${STAGE}" PUBLISH=1 sh ./tools/publish-repo.sh )
 
 echo "==> surfhost.conf as served by Pages:"

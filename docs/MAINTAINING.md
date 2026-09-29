@@ -173,20 +173,31 @@ repository:
 DAEMON_PKG=/tmp/openvpn-auth-oauth2.pkg PUBLISH=1 ./tools/publish-repo.sh
 ```
 
-That fetches the opnsense/plugins tree if needed, builds the plugin, copies the
-daemon package alongside it, generates the `pkg` metadata for the current ABI,
-and pushes the result to the `gh-pages` branch that GitHub Pages serves,
-together with [`tools/surfhost.conf`](../tools/surfhost.conf), which is the
-copy users fetch. Without `PUBLISH=1` it stages the files and prints the manual
-publish commands.
+That fetches the opnsense/plugins tree if needed, builds the plugin, stages it
+with the daemon package, and hands both to `tools/publish.sh` of
+[SurfHost/opnsense-repo](https://github.com/SurfHost/opnsense-repo), the shared
+repository that also carries the other SurfHost plugins. That script replaces
+only these two packages there, regenerates the catalogue over everything, and
+pushes its `gh-pages` branch. Without `PUBLISH=1` it stages the files and
+prints the manual publish command.
 
 [`tools/release.sh`](../tools/release.sh) wraps all of this for a tagged
 version on the build box, including mirroring the current daemon build and
 verifying the package before it publishes; its header has the usage.
 
-Edits to `tools/surfhost.conf` only reach users after a publish run, and then
-only once each firewall re-fetches the file: `pkg update` refreshes the
-package catalogue, not the repository configuration.
+`surfhost.conf`, the file users fetch, lives in SurfHost/opnsense-repo. Edits
+to it only reach users after a publish run, and then only once each firewall
+re-fetches the file: `pkg update` refreshes the package catalogue, not the
+repository configuration.
+
+**The old address.** Up to 1.7 the repository was this repo's own `gh-pages`
+(`https://surfhost.github.io/opnsense-plugin-entra-sso/${ABI}`). From 1.7.1,
+`+POST_INSTALL.post` rewrites any repository file on the firewall that still
+names that address, and `publish-repo.sh` keeps mirroring this plugin there
+(with the new `surfhost.conf` and [`tools/moved.html`](../tools/moved.html) at
+its root) so boxes that have not updated yet still find it. Set
+`LEGACY_MIRROR=0` to skip the mirror; remove it once nothing uses the old
+address.
 
 Bump `PLUGIN_VERSION` in
 [`os-openvpn-auth-oauth2/Makefile`](../os-openvpn-auth-oauth2/Makefile) before

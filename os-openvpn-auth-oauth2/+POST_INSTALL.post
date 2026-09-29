@@ -17,3 +17,18 @@ if /usr/local/etc/rc.d/openvpnauthoauth2 enabled && \
 	/bin/pkill -TERM -f -F /var/run/openvpnauthoauth2.child.pid \
 	    'OpenVPNAuthOAuth2/supervisor\.py' || :
 fi
+
+# The SurfHost package repository moved from the gh-pages of this plugin's
+# own GitHub repo to the shared SurfHost/opnsense-repo, which also carries the
+# other SurfHost plugins. Point every repository file that still names the
+# old address at the new one (that line only, nothing else in the file); pkg
+# reads it at the next 'pkg update'. The old address keeps serving until
+# boxes have moved, so a firewall that skips this release still updates.
+for REPOCONF in /usr/local/etc/pkg/repos/*.conf; do
+	[ -f "${REPOCONF}" ] || continue
+	if grep -q 'surfhost\.github\.io/opnsense-plugin-entra-sso/' "${REPOCONF}"; then
+		echo "Moving ${REPOCONF} to the shared SurfHost repository"
+		sed -i '' 's|surfhost\.github\.io/opnsense-plugin-entra-sso/|surfhost.github.io/opnsense-repo/|g' \
+		    "${REPOCONF}" || :
+	fi
+done
